@@ -202,9 +202,27 @@ fn editor_command(editor: &str, path: &Path) -> Command {
             .arg("-c")
             .arg("set ft=json")
             .arg("--");
+    } else if editor_name(editor).starts_with("emacs") {
+        // in the terminal, without the init files of the user or of the site, like vim above
+        cmd.arg("-nw").arg("-Q");
+    } else if editor_name(editor) == "micro" {
+        // an empty configuration, in the temporary folder: micro loads none of the user, and
+        // writes its backups in the only place where the sandbox lets it write; micro creates
+        // this directory, where it ignores -config-dir for one that does not exist yet
+        if let Some(folder) = path.parent() {
+            cmd.env("MICRO_CONFIG_HOME", folder.join("micro"));
+        }
     }
     cmd.arg(path);
     cmd
+}
+
+/// The file name of the editor, which tells the options it gets.
+fn editor_name(editor: &str) -> &str {
+    Path::new(editor)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(editor)
 }
 
 #[allow(clippy::too_many_lines)]
@@ -386,6 +404,33 @@ mod tests {
         ));
         fs::create_dir(&path).unwrap();
         path
+    }
+
+    // emacs stays in the terminal without init files, micro gets an empty configuration in the
+    // temporary folder, the only place where the sandbox lets it write; the others get the file
+    #[test]
+    fn test_editor_command_options() {
+        let path = Path::new("/tmp/chsr_x/config_y");
+        let args = |editor| {
+            editor_command(editor, path)
+                .get_args()
+                .map(|arg| arg.to_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            args("/usr/bin/emacs"),
+            ["-nw", "-Q", "/tmp/chsr_x/config_y"]
+        );
+        assert_eq!(args("/usr/bin/micro"), ["/tmp/chsr_x/config_y"]);
+        let micro = editor_command("/usr/bin/micro", path);
+        let config = micro
+            .get_envs()
+            .find(|(key, _)| *key == "MICRO_CONFIG_HOME")
+            .and_then(|(_, value)| value);
+        assert_eq!(config, Some(std::ffi::OsStr::new("/tmp/chsr_x/micro")));
+        assert_eq!(args("/usr/bin/nano"), ["/tmp/chsr_x/config_y"]);
+        assert_eq!(args("/usr/bin/joe"), ["/tmp/chsr_x/config_y"]);
+        assert_eq!(args("/usr/bin/vim").last().unwrap(), "/tmp/chsr_x/config_y");
     }
 
     #[test]

@@ -10,10 +10,13 @@ case "$ID" in
         apt-get update
         apt-get install -y build-essential curl git pkg-config e2fsprogs libcap2-bin python3 \
             clang libpam0g-dev libseccomp-dev pandoc
+        # the editors that e2e.sh runs under the sandbox of chsr editor
+        apt-get install -y vim nano emacs-nox joe micro
         ;;
     arch)
         pacman -Syu --noconfirm --needed base-devel curl git e2fsprogs libcap python \
             clang pam libseccomp pandoc-cli
+        pacman -S --noconfirm --needed vim nano emacs-nox joe micro
         ;;
     *)
         echo "provision.sh: unsupported distribution $ID" >&2
@@ -34,5 +37,8 @@ sudo -u vagrant -H bash -c '
     set -euo pipefail
     . "$HOME/.cargo/env"
     cd "$HOME/RootAsRole"
+    # every editor of the e2e checks in the list of chsr editor, vim first as in the default list;
+    # cargo keeps a variable of the environment over the one of .cargo/config.toml
+    export RAR_CHSR_EDITOR_PATH=/usr/bin/vim,/usr/bin/nano,/usr/bin/emacs,/usr/bin/joe,/usr/bin/micro
     cargo xtask install -bp sudo
 '

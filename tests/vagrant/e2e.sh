@@ -854,6 +854,133 @@ chsr_is_confined_by_landlock() {
     fi
 }
 
+# chsr editor with one editor of the build's list, under its sandbox (the two Landlock domains and
+# seccomp): an edit reaches chsr, which finds that the copy no longer parses, and an unchanged copy
+# is saved on a yes; skipped when the editor is not installed or not in the list of this build
+chsr_editor_works_with() {
+    local editor=/usr/bin/$1
+    [ -x "$editor" ] || return 77
+    RAR_EDITOR=$editor python3 - "$1" "$editor" <<'EOF'
+import os, pty, select, signal, sys, time
+
+name, editor = sys.argv[1], os.path.realpath(sys.argv[2])
+# the keys that insert "x" before the first character, save and quit, then the ones that quit
+# without a change; sent one chunk at a time
+KEYS = {
+    "vim": ([b"i", b"x", b"\x1b", b":wq\r"], [b":q\r"]),
+    # ^O, Enter to keep the name, ^X
+    "nano": ([b"x", b"\x0f", b"\r", b"\x18"], [b"\x18"]),
+    # C-x C-s, C-x C-c
+    "emacs": ([b"x", b"\x18\x13", b"\x18\x03"], [b"\x18\x03"]),
+    # ^K x saves and exits
+    "joe": ([b"x", b"\x0bx"], [b"\x0bx"]),
+    # ^S, ^Q
+    "micro": ([b"x", b"\x13", b"\x11"], [b"\x11"]),
+}
+edit, leave = KEYS[name]
+settle = 4 if name == "emacs" else 1.5
+
+
+def child_of(pid):
+    for entry in os.listdir("/proc"):
+        if entry.isdigit():
+            try:
+                with open(f"/proc/{entry}/stat") as f:
+                    if int(f.read().rsplit(")", 1)[1].split()[1]) == pid:
+                        return int(entry)
+            except (OSError, ValueError, IndexError):
+                pass
+    return None
+
+
+def run(keys, marker, answer):
+    """chsr editor in a pty: None when chsr runs another editor, else (marker seen, status, out)"""
+    pid, fd = pty.fork()
+    if pid == 0:
+        os.environ["TERM"] = "xterm"
+        os.execvp("chsr", ["chsr", "editor"])
+    out = bytearray()
+
+    def drain(seconds):
+        end = time.time() + seconds
+        while time.time() < end:
+            if select.select([fd], [], [], 0.2)[0]:
+                try:
+                    data = os.read(fd, 65536)
+                except OSError:
+                    return False
+                if not data:
+                    return False
+                out.extend(data)
+        return True
+
+    def wait(seconds):
+        end = time.time() + seconds
+        while time.time() < end:
+            done, status = os.waitpid(pid, os.WNOHANG)
+            if done:
+                return status
+            time.sleep(0.2)
+        return None
+
+    child = exe = status = None
+    try:
+        # the editor is the child of chsr, once chsr has run it
+        for _ in range(50):
+            drain(0.2)
+            child = child_of(pid)
+            try:
+                exe = os.readlink(f"/proc/{child}/exe") if child else None
+            except OSError:
+                exe = None
+            if exe == editor:
+                break
+        if exe != editor:
+            if exe and not exe.endswith("/chsr"):
+                print(f"{name}: chsr runs {exe}, {editor} is not in its list", file=sys.stderr)
+                return None
+            return False, None, out
+        drain(settle)
+        for chunk in keys:
+            os.write(fd, chunk)
+            drain(0.6)
+        end = time.time() + 20
+        while marker not in out and time.time() < end and drain(0.3):
+            pass
+        seen = marker in out
+        if seen:
+            drain(0.5)
+            os.write(fd, answer)
+            drain(3)
+            status = wait(10)
+        return seen, status, out
+    finally:
+        # only what still runs: a pid that was reaped may be another process's by now
+        if status is None:
+            if child is not None and child_of(pid) == child:
+                os.kill(child, signal.SIGKILL)
+            os.kill(pid, signal.SIGKILL)
+            os.waitpid(pid, 0)
+        os.close(fd)
+
+
+failed = False
+for keys, marker, answer, what in (
+    (edit, b"Your modifications are invalid", b"a\r", "an edit reaches chsr"),
+    (leave, b"Resulting configuration", b"Y\r", "an unchanged copy is saved"),
+):
+    result = run(keys, marker, answer)
+    if result is None:
+        sys.exit(77)
+    seen, status, out = result
+    if not seen or (marker == b"Resulting configuration" and status != 0):
+        tail = out[-600:].decode(errors="replace")
+        print(f"{name}: not {what} (status {status}): {tail!r}", file=sys.stderr)
+        failed = True
+sys.exit(1 if failed else 0)
+EOF
+}
+
 # the groups of id -G, sorted
 sorted_groups() {
     tr ' ' '\n' | sort -n | tr '\n' ' '
@@ -1246,6 +1373,11 @@ check "a refused attempt with long arguments is logged, cut into lines" long_ref
 check "a command with 1 MB of arguments runs and is logged" long_command_runs_and_is_logged
 check "the command starts with the identity that its task gives" command_starts_with_the_identity_of_its_task
 check "chsr is confined by Landlock" chsr_is_confined_by_landlock
+check "chsr editor works with vim, under its sandbox" chsr_editor_works_with vim
+check "chsr editor works with nano, under its sandbox" chsr_editor_works_with nano
+check "chsr editor works with emacs, under its sandbox" chsr_editor_works_with emacs
+check "chsr editor works with joe, under its sandbox" chsr_editor_works_with joe
+check "chsr editor works with micro, under its sandbox" chsr_editor_works_with micro
 check "-- ends the options of dosr" double_dash_ends_the_options
 check "dosr -i shows None for a task without capabilities" info_shows_no_capabilities_as_none
 check "a task that changes the user gives the groups of the target user" groups_of_the_target_user

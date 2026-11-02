@@ -22,6 +22,29 @@ fn editor_interpreter(editor: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+/// What the editors read, and never write nor run: their data, the terminal descriptions, the
+/// locales. A path missing on this system is left out ([`optional_rule`]).
+const EDITOR_DATA: &[&str] = &[
+    "/usr/share/locale",
+    "/usr/share/terminfo",
+    "/usr/share/vim",
+    "/etc/vimrc",
+    // emacs: its Lisp, and its dump file, under /usr/libexec on Debian, /usr/lib elsewhere
+    "/usr/share/emacs",
+    "/usr/libexec/emacs",
+    // the locale aliases of X11, which emacs reads at start where they are installed: refused,
+    // emacs stopped there and never opened the file
+    "/usr/share/X11/locale",
+];
+
+/// The controlling terminal, which emacs opens again instead of the one it inherits: the editor
+/// already holds that terminal as its standard input and output, so this gives it nothing more.
+const TERMINAL: &str = "/dev/tty";
+
+fn terminal_access() -> BitFlags<AccessFs> {
+    AccessFs::ReadFile | AccessFs::WriteFile | AccessFs::IoctlDev
+}
+
 /// Landlock on the whole chsr process: it may write only the policy files and the temporary folder
 /// of the editor, and read and run what the editor needs. The editor child gets a second, stricter
 /// domain of its own ([`editor_lock`]); since Landlock intersects nested domains, broad execute
@@ -55,11 +78,9 @@ pub fn full_program_lock(
         .iter()
         .filter(|editor| !editor.is_empty())
         .map(|&editor| (editor, read))
+        .chain(EDITOR_DATA.iter().map(|&path| (path, data)))
         .chain([
-            ("/usr/share/locale", data),
-            ("/usr/share/terminfo", data),
-            ("/usr/share/vim", data),
-            ("/etc/vimrc", data),
+            (TERMINAL, terminal_access()),
             ("/lib", read),
             ("/usr/lib", read),
         ]);
@@ -101,11 +122,9 @@ fn build_editor_domain(folder: &Path, editor: &str) -> Result<(), Box<dyn std::e
     if let Some(interpreter) = interpreter.as_deref() {
         optional.push((interpreter, read));
     }
+    optional.extend(EDITOR_DATA.iter().map(|&path| (path, data)));
     optional.extend([
-        ("/usr/share/locale", data),
-        ("/usr/share/terminfo", data),
-        ("/usr/share/vim", data),
-        ("/etc/vimrc", data),
+        (TERMINAL, terminal_access()),
         ("/lib", data),
         ("/usr/lib", data),
     ]);
