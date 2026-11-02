@@ -981,6 +981,100 @@ sys.exit(1 if failed else 0)
 EOF
 }
 
+# the binary of the editor that chsr editor runs without RAR_EDITOR; the editor is killed, so chsr
+# saves nothing
+editor_that_chsr_runs() {
+    env -u RAR_EDITOR python3 - <<'EOF'
+import os, pty, select, signal, time
+
+chsr = os.path.realpath("/usr/bin/chsr")
+pid, fd = pty.fork()
+if pid == 0:
+    os.environ["TERM"] = "xterm"
+    os.execvp("chsr", ["chsr", "editor"])
+
+
+def drain(seconds):
+    end = time.time() + seconds
+    while time.time() < end:
+        if select.select([fd], [], [], 0.2)[0]:
+            try:
+                if not os.read(fd, 65536):
+                    return
+            except OSError:
+                return
+
+
+def child_of(pid):
+    for entry in os.listdir("/proc"):
+        if entry.isdigit():
+            try:
+                with open(f"/proc/{entry}/stat") as f:
+                    if int(f.read().rsplit(")", 1)[1].split()[1]) == pid:
+                        return int(entry)
+            except (OSError, ValueError, IndexError):
+                pass
+    return None
+
+
+exe = child = None
+for _ in range(50):
+    drain(0.2)
+    child = child_of(pid)
+    try:
+        exe = os.readlink(f"/proc/{child}/exe") if child else None
+    except OSError:
+        exe = None
+    if exe and exe != chsr:
+        break
+    exe = None
+if exe:
+    os.kill(child, signal.SIGKILL)
+for _ in range(50):
+    drain(0.2)
+    if os.waitpid(pid, os.WNOHANG)[0]:
+        break
+else:
+    os.kill(pid, signal.SIGKILL)
+    os.waitpid(pid, 0)
+os.close(fd)
+print(exe or "")
+EOF
+}
+
+# without RAR_EDITOR, chsr editor runs the editor of the system, /usr/bin/editor, which root chooses
+# with update-alternatives, when it is an editor of its list, by its path in the list (jpico is a
+# link to joe); another one, like vim.tiny, is ignored for the first editor of the list
+chsr_editor_follows_the_system_editor() {
+    command -v update-alternatives >/dev/null && [ -L /usr/bin/editor ] || return 77
+    local status value alternative expected got rc=0
+    status=$(update-alternatives --query editor | sed -n 's/^Status: //p')
+    value=$(update-alternatives --query editor | sed -n 's/^Value: //p')
+    for alternative in /bin/nano /usr/bin/joe /usr/bin/jpico /usr/bin/vim.basic /usr/bin/micro \
+        /usr/bin/emacs /usr/bin/vim.tiny; do
+        update-alternatives --list editor | grep -qx "$alternative" || continue
+        update-alternatives --set editor "$alternative" >/dev/null || {
+            rc=1
+            continue
+        }
+        case $alternative in
+            */vim.tiny) expected=$(readlink -f /usr/bin/vim) ;;
+            *) expected=$(readlink -f "$alternative") ;;
+        esac
+        got=$(editor_that_chsr_runs)
+        [ "$got" = "$expected" ] || {
+            echo "editor -> $alternative: chsr runs ${got:-nothing}, not $expected" >&2
+            rc=1
+        }
+    done
+    if [ "$status" = auto ]; then
+        update-alternatives --auto editor >/dev/null
+    else
+        update-alternatives --set editor "$value" >/dev/null
+    fi
+    return "$rc"
+}
+
 # chsr removes its temporary folder, the editor's included: Landlock let it empty the folder but
 # not remove it from /tmp, and every chsr command left one there (#118)
 chsr_removes_its_temporary_folder() {
@@ -1396,6 +1490,7 @@ check "chsr editor works with nano, under its sandbox" chsr_editor_works_with na
 check "chsr editor works with emacs, under its sandbox" chsr_editor_works_with emacs
 check "chsr editor works with joe, under its sandbox" chsr_editor_works_with joe
 check "chsr editor works with micro, under its sandbox" chsr_editor_works_with micro
+check "chsr editor runs the editor of the system when it is one of its list" chsr_editor_follows_the_system_editor
 check "chsr removes its temporary folder, the one of the editor included" chsr_removes_its_temporary_folder
 check "-- ends the options of dosr" double_dash_ends_the_options
 check "dosr -i shows None for a task without capabilities" info_shows_no_capabilities_as_none

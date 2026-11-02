@@ -102,6 +102,29 @@ pub const SYSTEM_EDITOR_LIST: &[&str] = &konst::iter::collect_const!(&str =>
         map(str::trim_ascii),
 );
 
+/// The link to the editor of the system, which root chooses (update-alternatives on Debian).
+const SYSTEM_EDITOR: &str = "/usr/bin/editor";
+
+/// The editor of `list` that `link` points to. The link only chooses among the editors of the
+/// list, each tested under the sandbox; one outside it (ed, vim.tiny...) is ignored, with a
+/// warning in the log. chsr runs it by its path in the list, whose name tells its options:
+/// `/usr/bin/vim` where the link resolves to `vim.basic`, joe for jpico, which is a link to joe.
+fn system_editor<'a>(link: &str, list: &[&'a str]) -> Option<&'a str> {
+    let target = std::fs::canonicalize(link).ok()?;
+    let editor = list.iter().copied().find(|&editor| {
+        editor != link
+            && is_executable_file(editor)
+            && std::fs::canonicalize(editor).is_ok_and(|path| path == target)
+    });
+    if editor.is_none() {
+        warn!(
+            "Ignoring {link}: {} is not an editor of the list of chsr",
+            target.display()
+        );
+    }
+    editor
+}
+
 fn is_vim(editor: &str) -> bool {
     editor.ends_with("vim") || editor.ends_with("nvim")
 }
@@ -147,13 +170,13 @@ where
     });
 
     let editor = if editor.is_empty() {
-        let mut found_editor = None;
-        for &editor in SYSTEM_EDITOR_LIST {
-            if is_executable_file(editor) {
-                found_editor = Some(editor);
-                break;
-            }
-        }
+        // the editor of the system when it is one of the list, else the first one installed
+        let found_editor = system_editor(SYSTEM_EDITOR, SYSTEM_EDITOR_LIST).or_else(|| {
+            SYSTEM_EDITOR_LIST
+                .iter()
+                .copied()
+                .find(|&editor| is_executable_file(editor))
+        });
         if let Some(editor) = found_editor {
             debug!("Using editor from SYSTEM_EDITOR_LIST: {editor}");
             editor.to_string()
@@ -456,6 +479,36 @@ mod tests {
         assert_eq!(args("/usr/bin/nano"), ["/tmp/chsr_x/config_y"]);
         assert_eq!(args("/usr/bin/joe"), ["/tmp/chsr_x/config_y"]);
         assert_eq!(args("/usr/bin/vim").last().unwrap(), "/tmp/chsr_x/config_y");
+    }
+
+    // /usr/bin/editor chooses among the editors of the list, by the file it resolves to, and the
+    // editor is run by its path in the list; an editor outside the list, or no link, chooses none
+    #[test]
+    fn test_system_editor_chooses_among_the_list() {
+        use std::os::unix::fs::symlink;
+        let dir = test_temp_dir("rar_test_system_editor");
+        let path = |name: &str| dir.join(name).to_str().unwrap().to_string();
+        for name in ["vim.basic", "nano", "ed"] {
+            fs::write(dir.join(name), "").unwrap();
+            fs::set_permissions(dir.join(name), fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        // the list names vim by a link, as Debian does through /etc/alternatives/vim
+        symlink(dir.join("vim.basic"), dir.join("vim")).unwrap();
+        let (vim, nano) = (path("vim"), path("nano"));
+        let list = [vim.as_str(), nano.as_str()];
+        let link = path("editor");
+        assert_eq!(system_editor(&link, &list), None);
+        symlink(dir.join("nano"), &link).unwrap();
+        assert_eq!(system_editor(&link, &list), Some(nano.as_str()));
+        fs::remove_file(&link).unwrap();
+        symlink(dir.join("vim.basic"), &link).unwrap();
+        assert_eq!(system_editor(&link, &list), Some(vim.as_str()));
+        fs::remove_file(&link).unwrap();
+        symlink(dir.join("ed"), &link).unwrap();
+        assert_eq!(system_editor(&link, &list), None);
+        // the link itself in the list does not stand for an editor
+        assert_eq!(system_editor(&link, &[link.as_str()]), None);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     // an editor that saves to a new file and renames it over the copy, like vim and emacs when
