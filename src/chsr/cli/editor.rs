@@ -1,7 +1,7 @@
 use std::{
     error::Error,
     fmt::Debug,
-    io::{BufRead, Read, Seek, Write},
+    io::{BufRead, Read, Write},
     os::unix::process::CommandExt,
     path::Path,
 };
@@ -18,8 +18,12 @@ use rootasrole_core::{
 };
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
-use std::os::unix::fs::PermissionsExt;
-use std::{fs::File, io::stdin, process::Command};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::{
+    fs::{File, OpenOptions},
+    io::stdin,
+    process::Command,
+};
 
 use crate::security::{editor_lock, seccomp_lock};
 
@@ -254,8 +258,8 @@ where
     debug!("Wrote current config to temporary file");
     file.flush()?;
     debug!("Flushed temporary file");
-    file.rewind()?;
-    debug!("Rewound temporary file");
+    // the editor saves the copy by its path, where chsr reads it again (read_copy)
+    drop(file);
 
     // owned, so the pre_exec closure of the child can hold them (the editor sandbox below)
     let lock_folder = folder.as_ref().to_path_buf();
@@ -290,12 +294,7 @@ where
             writeln!(output, "Editor exited with an error.")?;
             return Ok(false);
         }
-        let seek_pos = file.stream_position()?;
-        debug!("Current file position: {seek_pos}");
-        file.rewind()?;
-        debug!("Rewound temporary file for reading");
-        let mut text = String::new();
-        file.read_to_string(&mut text)?;
+        let text = read_copy(&path)?;
         // a configuration that does not pass the check is invalid like one that does not parse
         match edited::<T>(&text).and_then(|(new_config, migration)| {
             check(&new_config).map(|()| (new_config, migration))
@@ -335,8 +334,6 @@ where
                     return Ok(false);
                 };
                 if choice == "n" || choice == "no" {
-                    // Replace the cursor position to the last position before reading
-                    file.seek(std::io::SeekFrom::Start(seek_pos))?;
                     continue;
                 } else if choice == "a" || choice == "abort" {
                     return Ok(false);
@@ -361,11 +358,39 @@ where
                 if choice == "a" || choice == "abort" {
                     return Ok(false);
                 }
-                // else Replace the cursor position to the last position before reading
-                file.seek(std::io::SeekFrom::Start(seek_pos))?;
             }
         }
     }
+}
+
+/// The copy that the editor saved, read again by its path: an editor that writes a new file and
+/// renames it over the copy (vim and emacs when they keep a backup, which they do outside /tmp)
+/// left the descriptor of chsr on the former content, and the edit was lost. Only a regular file:
+/// not a link, a FIFO or a device that the editor could have put there.
+fn read_copy(path: &Path) -> std::io::Result<String> {
+    let not_a_file = || {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("{} is no longer a regular file", path.display()),
+        )
+    };
+    let before = std::fs::symlink_metadata(path)?;
+    if !before.file_type().is_file() {
+        return Err(not_a_file());
+    }
+    // O_NONBLOCK: a FIFO put there between the two would block the open
+    let mut file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)?;
+    let opened = file.metadata()?;
+    if !opened.file_type().is_file() || (opened.dev(), opened.ino()) != (before.dev(), before.ino())
+    {
+        return Err(not_a_file());
+    }
+    let mut text = String::new();
+    file.read_to_string(&mut text)?;
+    Ok(text)
 }
 
 #[cfg(test)]
@@ -431,6 +456,70 @@ mod tests {
         assert_eq!(args("/usr/bin/nano"), ["/tmp/chsr_x/config_y"]);
         assert_eq!(args("/usr/bin/joe"), ["/tmp/chsr_x/config_y"]);
         assert_eq!(args("/usr/bin/vim").last().unwrap(), "/tmp/chsr_x/config_y");
+    }
+
+    // an editor that saves to a new file and renames it over the copy, like vim and emacs when
+    // they keep a backup: chsr read the former content through its descriptor and lost the edit
+    #[test]
+    fn test_edit_saved_by_rename_reaches_chsr() {
+        let _lock = LOCK.lock().unwrap();
+        let temp_dir_path = test_temp_dir("rar_test_rename");
+        let mock_editor_path = temp_dir_path.join("mock_editor.sh");
+        let script = r#"#!/bin/sh
+for last; do true; done
+printf '%s' '{"roles": 1}' > "$last.new" && mv "$last.new" "$last"
+"#;
+        fs::write(&mock_editor_path, script).unwrap();
+        fs::set_permissions(&mock_editor_path, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut config = RootSettings::default();
+        let mut input = Cursor::new(b"a\n");
+        let mut output = Vec::new();
+        let result = edit_internal(
+            &temp_dir_path,
+            &mut config,
+            mock_editor_path.to_str().unwrap(),
+            &mut input,
+            &mut output,
+            |_| {},
+            |_| Ok(()),
+        );
+        let _ = fs::remove_dir_all(&temp_dir_path);
+        assert!(!result.unwrap());
+        let output = String::from_utf8(output).unwrap();
+        assert!(
+            output.contains("Your modifications are invalid"),
+            "{output}"
+        );
+    }
+
+    // the copy replaced by a link: chsr does not follow it, it reads nothing through it
+    #[test]
+    fn test_copy_replaced_by_a_link_is_refused() {
+        let _lock = LOCK.lock().unwrap();
+        let temp_dir_path = test_temp_dir("rar_test_link");
+        let target = temp_dir_path.join("elsewhere.json");
+        fs::write(&target, r#"{"roles": []}"#).unwrap();
+        let mock_editor_path = temp_dir_path.join("mock_editor.sh");
+        let script = format!(
+            "#!/bin/sh\nfor last; do true; done\nrm \"$last\" && ln -s '{}' \"$last\"\n",
+            target.display()
+        );
+        fs::write(&mock_editor_path, script).unwrap();
+        fs::set_permissions(&mock_editor_path, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut config = RootSettings::default();
+        let mut input = Cursor::new(b"Y\n");
+        let mut output = Vec::new();
+        let result = edit_internal(
+            &temp_dir_path,
+            &mut config,
+            mock_editor_path.to_str().unwrap(),
+            &mut input,
+            &mut output,
+            |_| {},
+            |_| Ok(()),
+        );
+        let _ = fs::remove_dir_all(&temp_dir_path);
+        assert!(result.is_err());
     }
 
     #[test]
