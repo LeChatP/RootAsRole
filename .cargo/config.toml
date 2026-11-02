@@ -20,8 +20,12 @@ integration-test = [
     "--test-threads=1"
 ]
 
+# the llvm engine: under ptrace, the default one, a test that makes its process undumpable
+# (coredump.rs) takes the tracer's access away, and tarpaulin stops on a segfault
 coverage = [
     "tarpaulin",
+    "--engine",
+    "llvm",
     "--workspace",
     "--all-features",
     "--bin", "dosr",
