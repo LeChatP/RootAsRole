@@ -1485,6 +1485,32 @@ signal_reaches_a_command_of_another_user() {
     return $rc
 }
 
+# a signal that dosr gives the command, through a pty, reaches its process group, as under sudo:
+# the processes of sh -c 'a | b' end with it; the monitor sent it to sh only, and the others
+# stayed, holding the pty
+signal_reaches_every_process_of_the_command() {
+    local dosr left rc=0
+    as_user script -qec "dosr -r e2e -t shell /usr/bin/sh -c 'sleep 42 | cat'" /dev/null \
+        </dev/null >/dev/null 2>&1 &
+    sleep 1.5
+    dosr=$(pgrep -o -f "^dosr -r e2e -t shell /usr/bin/sh -c sleep 42")
+    if [ -z "$dosr" ] || ! pgrep -f "^sleep 42$" >/dev/null; then
+        echo "the command did not start" >&2
+        rc=1
+    else
+        as_user kill -TERM "$dosr"
+        sleep 2
+        left=$(pgrep -a -f "^sleep 42$")
+        [ -z "$left" ] || {
+            echo "still running after SIGTERM to dosr: $left" >&2
+            rc=1
+        }
+    fi
+    pkill -f "^sleep 42$"
+    wait
+    return $rc
+}
+
 # a command that ignores SIGHUP (nohup, trap '' HUP) goes on when the user's terminal is gone, as
 # under sudo: dosr stopped at the first error of the terminal, writing what the command printed
 # after the hangup, and its monitor terminated the command; dosr is the controlling process of
@@ -1706,6 +1732,7 @@ check "the password prompt gives the echo back on ^Z and ^C, and shows again aft
 check "dosr dumps no core, through a file or a pipe, even with fs.suid_dumpable = 1" dosr_dumps_no_core
 check "a signal sent to dosr reaches a command that runs as root or as another user" signal_reaches_a_command_of_another_user
 check "the signals that the caller ignores stay ignored by the command" command_keeps_the_signals_that_the_caller_ignores
+check "a signal given to the command through a pty reaches its process group" signal_reaches_every_process_of_the_command
 check "a command that ignores SIGHUP goes on when the terminal is gone" command_that_ignores_sighup_survives_the_terminal
 check "the command gets the core limit of the caller" command_gets_the_core_limit_of_the_caller
 exit "$FAILED"

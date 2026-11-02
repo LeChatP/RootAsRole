@@ -98,11 +98,14 @@ impl Process for MonitorClosure {
                     Ok(MonitorMessage::Signal(sig)) => {
                         debug!("monitor: signal from parent {sig}");
                         if is_forward_signal_allowed(sig) {
-                            // the command is the child of the monitor, not reaped while it is set
+                            // the command is the child of the monitor, not reaped while it is set;
+                            // the signal goes to its process group, as in sudo-rs
+                            // (exec/use_pty/monitor.rs, send_signal): `sh -c 'a | b'` ends with
+                            // `a` and `b`, which kept the pty otherwise
                             if let Some(pid) = self.command_pid {
                                 if sig == libc::SIGALRM {
                                     terminate_child(pid, false);
-                                } else if let Err(e) = signal_child(pid, sig, false) {
+                                } else if let Err(e) = signal_child(pid, sig, true) {
                                     warn!("monitor: cannot forward signal {sig}: {e}");
                                 }
                             }
@@ -200,7 +203,7 @@ impl MonitorClosure {
                 debug!("monitor: forwarding signal {}", info.signal);
                 if info.signal == libc::SIGALRM {
                     terminate_child(pid, false);
-                } else if let Err(e) = signal_child(pid, info.signal, false) {
+                } else if let Err(e) = signal_child(pid, info.signal, true) {
                     warn!("monitor: cannot forward signal {}: {e}", info.signal);
                 }
             }
