@@ -37,8 +37,5 @@ sudo -u vagrant -H bash -c '
     set -euo pipefail
     . "$HOME/.cargo/env"
     cd "$HOME/RootAsRole"
-    # every editor of the e2e checks in the list of chsr editor, vim first as in the default list;
-    # cargo keeps a variable of the environment over the one of .cargo/config.toml
-    export RAR_CHSR_EDITOR_PATH=/usr/bin/vim,/usr/bin/nano,/usr/bin/emacs,/usr/bin/joe,/usr/bin/micro
     cargo xtask install -bp sudo
 '

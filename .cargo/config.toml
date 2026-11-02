@@ -44,7 +44,7 @@ RAR_CFG_DATA_PATH = "/etc/security/rootasrole.d/"
 RAR_PAM_SERVICE = "dosr"
 RAR_BIN_PATH = "/usr/bin"
 RAR_CFG_IMMUTABLE = "true"
-RAR_CHSR_EDITOR_PATH = "/usr/bin/vim"
+RAR_CHSR_EDITOR_PATH = "/usr/bin/vim,/usr/bin/nano,/usr/bin/emacs,/usr/bin/joe,/usr/bin/micro"
 # The command that shows the log of dosr, named to the user after an error whose reason is only
 # in the log; empty on a system without one. `-p info` leaves out the debug lines of the PAM
 # modules: pam_unix tries setuid(0) before running unix_chkpwd, and logs at debug level that a
