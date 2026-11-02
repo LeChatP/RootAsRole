@@ -1339,6 +1339,35 @@ mod tests {
         assert_eq!(env["check"], serde_json::json!(["env3", "env4"]));
     }
 
+    // a uid or a gid typed on the command line is saved as a number: saved as a string, dosr
+    // looked the user up by the name "1000", which nobody has
+    #[test]
+    fn test_ids_typed_in_chsr_are_saved_as_numbers() {
+        let name = "ids_typed_in_chsr_are_saved_as_numbers";
+        let (mut ctx, _defer) = TestContext::new(name);
+        for command in [
+            "r complete grant -u 1000 -g 1001 -g 1002&adm",
+            "r complete t t_complete cred set --setuid 1003 --setgid 1004,adm",
+        ] {
+            ctx.assert_command_success(command);
+        }
+        let saved = saved_policy(&mut ctx, name);
+        let actors = saved_role(&saved, "complete")["actors"]
+            .as_array()
+            .unwrap()
+            .clone();
+        for actor in [
+            serde_json::json!({"type": "user", "id": 1000}),
+            serde_json::json!({"type": "group", "groups": 1001}),
+            serde_json::json!({"type": "group", "groups": [1002, "adm"]}),
+        ] {
+            assert!(actors.contains(&actor), "{actor} not in {actors:?}");
+        }
+        let task = saved_task(&saved, "complete", "t_complete");
+        assert_eq!(task["cred"]["setuid"], 1003);
+        assert_eq!(task["cred"]["setgid"], serde_json::json!([1004, "adm"]));
+    }
+
     #[test]
     fn test_simple_edits_are_saved() {
         let name = "simple_edits_are_saved";

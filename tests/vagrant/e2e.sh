@@ -555,6 +555,28 @@ chsr_regex_is_matched_by_dosr() {
     return "$result"
 }
 
+# a uid typed in chsr, for an actor or a setuid, is the uid for dosr: chsr wrote the actor as a
+# string, which dosr took for the name of a user that nobody has, so the role was granted to
+# nobody until another chsr command read the file and wrote it again as a number; the grant is
+# the last command here
+chsr_uids_are_uids_for_dosr() {
+    local uid nobody result=1
+    uid=$(id -u "$TEST_USER")
+    nobody=$(id -u nobody)
+    chsr file e2e.json r e2e-uid add || return 1
+    if chsr file e2e.json r e2e-uid t uid add &&
+        chsr file e2e.json r e2e-uid t uid cmd wl add '/usr/bin/id -u' &&
+        chsr file e2e.json r e2e-uid t uid cred set --setuid "$nobody" &&
+        chsr file e2e.json r e2e-uid grant -u "$uid" &&
+        [ "$(as_user dosr -r e2e-uid -t uid /usr/bin/id -u 2>&1)" = "$nobody" ]; then
+        result=0
+    else
+        grep -A12 '"e2e-uid"' "$E2E_POLICY" >&2
+    fi
+    chsr file e2e.json r e2e-uid del || return 1
+    return "$result"
+}
+
 # the executions are logged under the name dosr, no longer sr
 dosr_logs_under_its_name() {
     local since
@@ -1563,6 +1585,7 @@ check "a cookie whose use cannot be written does not spare the password" unwritt
 check "a failed lookup of an actor disables the roles with ssd" ssd_role_disabled_by_a_failed_lookup
 check "chsr edits default.json of the policy directory" chsr_edits_the_default_file
 check "a regular expression written with chsr is matched by dosr" chsr_regex_is_matched_by_dosr
+check "a uid typed in chsr, for an actor or a setuid, is the uid for dosr" chsr_uids_are_uids_for_dosr
 check "the executions are logged under the name dosr" dosr_logs_under_its_name
 check "the command that dosr names shows its lines, without the debug lines of PAM" log_command_shows_the_lines_of_dosr
 check "the PAM service of dosr opens no login session" pam_opens_no_login_session

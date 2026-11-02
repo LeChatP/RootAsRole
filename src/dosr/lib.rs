@@ -275,17 +275,14 @@ where
     while let Some(arg) = iter.next() {
         // matches only first options
         match arg.as_ref() {
+            // by their names only, as the test of CVE-2019-14287 below says: a string of digits,
+            // which the policy takes for an id, is the name of nobody here
             "-u" | "--user" => {
-                user = iter.next().map(|s| s.as_ref().into());
+                user = iter.next().map(|s| SUserType::by_name(s.as_ref()));
             }
             "-g" | "--group" => {
                 group = iter.next().map(|s| {
-                    SGroups::Multiple(
-                        s.as_ref()
-                            .split(',')
-                            .map(std::convert::Into::into)
-                            .collect::<Vec<SGroupType>>(),
-                    )
+                    SGroups::Multiple(s.as_ref().split(',').map(SGroupType::by_name).collect())
                 });
             }
             "-S" | "--stdin" => {
@@ -1030,13 +1027,16 @@ mod tests {
     fn test_getopt_refuses_users_and_groups_that_do_not_exist() {
         // sudo CVE-2019-14287: -u#-1 ran the command as root, since setresuid(-1) changes
         // nothing; dosr takes users and groups by their names, which -1 and 4294967295 are not
+        // nor a uid or a gid: no user is named 0
         for (option, value) in [
             ("-u", "#-1"),
             ("-u", "-1"),
             ("-u", "4294967295"),
+            ("-u", "0"),
             ("-g", "-1"),
             ("-g", "4294967295"),
             ("-g", "root,-1"),
+            ("-g", "0"),
         ] {
             assert!(
                 matches!(

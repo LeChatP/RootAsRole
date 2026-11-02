@@ -34,18 +34,89 @@ impl SGenericActorType {
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct SUserType(SGenericActorType);
 
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
 #[serde(untagged, rename_all = "lowercase")]
 pub enum DGenericActorType<'a> {
     Id(u32),
-    #[serde(borrow)]
     Name(Cow<'a, str>),
+}
+
+/// The uid or gid that `name` stands for when it is made of digits only, as `"1000"`.
+///
+/// useradd and groupadd refuse such names, so it is an id written as a string. Anything else is
+/// a name, which no user or group has: `+1000`, a number beyond `u32`, and 4294967295, which is
+/// `(uid_t)-1`, the value that `setresuid` takes for "unchanged" (sudo CVE-2019-14287).
+#[must_use]
+pub fn numeric_id(name: &str) -> Option<u32> {
+    if name.is_empty() || !name.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    name.parse().ok().filter(|&id| id != u32::MAX)
+}
+
+impl<'de: 'a, 'a> Deserialize<'de> for DGenericActorType<'a> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct DGenericActorTypeVisitor<'a> {
+            marker: std::marker::PhantomData<&'a ()>,
+        }
+        impl<'de: 'a, 'a> serde::de::Visitor<'de> for DGenericActorTypeVisitor<'a> {
+            type Value = DGenericActorType<'a>;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a name or an id")
+            }
+
+            fn visit_borrowed_str<E>(self, v: &'de str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(v.into())
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                self.visit_string(v.to_string())
+            }
+
+            fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(numeric_id(&v).map_or_else(
+                    || DGenericActorType::Name(Cow::Owned(v)),
+                    DGenericActorType::Id,
+                ))
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(DGenericActorType::Id(
+                    u32::try_from(value).map_err(|_| E::custom("value is too large"))?,
+                ))
+            }
+        }
+        deserializer.deserialize_any(DGenericActorTypeVisitor {
+            marker: std::marker::PhantomData,
+        })
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct DUserType<'a>(#[serde(borrow)] DGenericActorType<'a>);
 
 impl SUserType {
+    /// A user given by its name only, a string of digits included, as dosr takes `-u`.
+    #[must_use]
+    pub fn by_name(name: &str) -> Self {
+        Self(SGenericActorType::Name(name.into()))
+    }
     #[must_use]
     pub fn fetch_id(&self) -> Option<u32> {
         match &self.0 {
@@ -187,6 +258,11 @@ impl fmt::Display for SGroupType {
 }
 
 impl SGroupType {
+    /// A group given by its name only, a string of digits included, as dosr takes `-g`.
+    #[must_use]
+    pub fn by_name(name: &str) -> Self {
+        Self(SGenericActorType::Name(name.into()))
+    }
     #[must_use]
     pub fn fetch_eq(&self, other: &Self) -> bool {
         let uid = self.fetch_id();
@@ -362,42 +438,24 @@ impl<'de: 'a, 'a> Deserialize<'de> for DGroups<'a> {
             where
                 E: serde::de::Error,
             {
-                v.parse().map_or_else(
-                    |_| {
-                        Ok(DGroups::Single(DGroupType(DGenericActorType::Name(
-                            Cow::Borrowed(v),
-                        ))))
-                    },
-                    |group| Ok(DGroups::Single(DGroupType(DGenericActorType::Id(group)))),
-                )
+                Ok(DGroups::Single(DGroupType(v.into())))
             }
 
             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {
-                v.parse().map_or_else(
-                    |_| {
-                        Ok(DGroups::Single(DGroupType(DGenericActorType::Name(
-                            Cow::Owned(v.to_string()),
-                        ))))
-                    },
-                    |group| Ok(DGroups::Single(DGroupType(DGenericActorType::Id(group)))),
-                )
+                self.visit_string(v.to_string())
             }
 
             fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {
-                v.parse().map_or_else(
-                    |_| {
-                        Ok(DGroups::Single(DGroupType(DGenericActorType::Name(
-                            v.into(),
-                        ))))
-                    },
-                    |group| Ok(DGroups::Single(DGroupType(DGenericActorType::Id(group)))),
-                )
+                Ok(DGroups::Single(DGroupType(numeric_id(&v).map_or_else(
+                    || DGenericActorType::Name(v.into()),
+                    DGenericActorType::Id,
+                ))))
             }
 
             fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
@@ -455,14 +513,7 @@ impl<'de> Deserialize<'de> for SGroups {
                 E: serde::de::Error,
             {
                 debug!("SGroups: visit_borrowed_str: {v}");
-                v.parse().map_or_else(
-                    |_| {
-                        Ok(SGroups::Single(SGroupType(SGenericActorType::Name(
-                            v.to_string(),
-                        ))))
-                    },
-                    |group| Ok(SGroups::Single(SGroupType(SGenericActorType::Id(group)))),
-                )
+                Ok(SGroups::Single(SGroupType(v.into())))
             }
 
             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
@@ -470,14 +521,7 @@ impl<'de> Deserialize<'de> for SGroups {
                 E: serde::de::Error,
             {
                 debug!("SGroups: visit_str: {v}");
-                v.parse().map_or_else(
-                    |_| {
-                        Ok(SGroups::Single(SGroupType(SGenericActorType::Name(
-                            v.into(),
-                        ))))
-                    },
-                    |group| Ok(SGroups::Single(SGroupType(SGenericActorType::Id(group)))),
-                )
+                Ok(SGroups::Single(SGroupType(v.into())))
             }
 
             fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
@@ -485,10 +529,10 @@ impl<'de> Deserialize<'de> for SGroups {
                 E: serde::de::Error,
             {
                 debug!("SGroups: visit_string: {v}");
-                v.parse().map_or_else(
-                    |_| Ok(SGroups::Single(SGroupType(SGenericActorType::Name(v)))),
-                    |group| Ok(SGroups::Single(SGroupType(SGenericActorType::Id(group)))),
-                )
+                Ok(SGroups::Single(SGroupType(numeric_id(&v).map_or_else(
+                    || SGenericActorType::Name(v),
+                    SGenericActorType::Id,
+                ))))
             }
 
             fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
@@ -547,7 +591,10 @@ impl<'a> From<&'a str> for DUserType<'a> {
 
 impl From<String> for DUserType<'_> {
     fn from(name: String) -> Self {
-        DUserType(DGenericActorType::Name(name.into()))
+        DUserType(numeric_id(&name).map_or_else(
+            || DGenericActorType::Name(name.into()),
+            DGenericActorType::Id,
+        ))
     }
 }
 
@@ -589,13 +636,13 @@ impl From<Group> for SGroupType {
 
 impl From<&str> for SGenericActorType {
     fn from(name: &str) -> Self {
-        Self::Name(name.into())
+        numeric_id(name).map_or_else(|| Self::Name(name.into()), Self::Id)
     }
 }
 
 impl<'a> From<&'a str> for DGenericActorType<'a> {
     fn from(name: &'a str) -> Self {
-        name.parse::<u32>().map_or(
+        numeric_id(name).map_or(
             DGenericActorType::Name(Cow::Borrowed(name)),
             DGenericActorType::Id,
         )
@@ -1393,6 +1440,73 @@ mod tests {
             actor(r#"{"user": "alice", "group": "adm"}"#),
             DActor::Unknown(_)
         ));
+    }
+
+    // useradd and groupadd refuse a name made of digits: "1000" is uid or gid 1000, for users and
+    // groups, as dosr and chsr read it, and chsr writes it as a number
+    #[test]
+    fn test_a_string_of_digits_is_an_id() {
+        assert_eq!(numeric_id("1000"), Some(1000));
+        assert_eq!(numeric_id("0"), Some(0));
+        for name in [
+            "",
+            "alice",
+            "+1000",
+            "-1",
+            "1000a",
+            " 1000",
+            "4294967295",
+            "4294967296",
+        ] {
+            assert_eq!(numeric_id(name), None, "{name:?}");
+        }
+
+        let dosr = |json: &'static str| serde_json::from_str::<DActor<'static>>(json).unwrap();
+        for json in [
+            r#"{"type": "user", "id": "1000"}"#,
+            r#"{"type": "user", "name": "1000"}"#,
+            r#"{"user": "1000"}"#,
+        ] {
+            assert_eq!(
+                dosr(json),
+                DActor::User {
+                    id: DUserType::from(1000)
+                },
+                "{json}"
+            );
+        }
+        assert_eq!(dosr(r#"{"group": "1000"}"#), dosr(r#"{"group": 1000}"#));
+        assert_eq!(
+            dosr(r#"{"group": ["1000", "adm"]}"#),
+            dosr(r#"{"group": [1000, "adm"]}"#)
+        );
+        assert_eq!(
+            serde_json::from_str::<DUserType>(r#""+1000""#).unwrap().0,
+            DGenericActorType::Name("+1000".into())
+        );
+
+        let chsr = |json: &str| serde_json::from_str::<SActor>(json).unwrap();
+        assert_eq!(chsr(r#"{"user": "1000"}"#), SActor::user(1000).build());
+        assert_eq!(chsr(r#"{"group": "1000"}"#), SActor::group(1000).build());
+
+        // what chsr writes for an actor typed on its command line
+        let written = |actor: SActor| serde_json::to_value(actor).unwrap();
+        assert_eq!(
+            written(SActor::user("1000").build()),
+            serde_json::json!({"type": "user", "id": 1000})
+        );
+        assert_eq!(
+            written(SActor::group("1000").build()),
+            serde_json::json!({"type": "group", "groups": 1000})
+        );
+        assert_eq!(
+            written(SActor::user("alice").build()),
+            serde_json::json!({"type": "user", "id": "alice"})
+        );
+        assert_eq!(
+            serde_json::to_value(SGroupType::from("1000")).unwrap(),
+            serde_json::json!(1000)
+        );
     }
 
     /// The names kept in `cache`, `None` outside a decision.

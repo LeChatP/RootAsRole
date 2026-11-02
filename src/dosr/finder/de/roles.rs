@@ -294,25 +294,32 @@ mod test {
     use super::*;
     use nix::unistd::{getgid, getuid};
     use test_log::test;
+    // the uid as a number, or as a string of digits, which chsr wrote for a uid typed on its
+    // command line before 4.3.0 and dosr took for the name of a user
     #[test]
     fn test_actors_finder_deserializer() {
-        let json = format!(r#"[{{"type": "user", "id": {}}}]"#, getuid().as_raw());
-        let deserializer = ActorsFinderDeserializer {
-            cred: &Cred::builder()
-                .curdir()
-                .unwrap()
-                .groups()
-                .unwrap()
-                .user()
-                .unwrap()
-                .build(),
-            lookup: SYSTEM_LOOKUP,
-        };
-        let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
-        assert!(result.is_ok(), "Failed to deserialize: {result:?}");
-        let (user_min, lookup_failed) = result.unwrap();
-        assert_eq!(user_min, ActorMatchMin::UserMatch);
-        assert!(!lookup_failed);
+        let uid = getuid().as_raw();
+        for json in [
+            format!(r#"[{{"type": "user", "id": {uid}}}]"#),
+            format!(r#"[{{"type": "user", "id": "{uid}"}}]"#),
+        ] {
+            let deserializer = ActorsFinderDeserializer {
+                cred: &Cred::builder()
+                    .curdir()
+                    .unwrap()
+                    .groups()
+                    .unwrap()
+                    .user()
+                    .unwrap()
+                    .build(),
+                lookup: SYSTEM_LOOKUP,
+            };
+            let result = deserializer.deserialize(&mut serde_json::Deserializer::from_str(&json));
+            assert!(result.is_ok(), "Failed to deserialize: {result:?}");
+            let (user_min, lookup_failed) = result.unwrap();
+            assert_eq!(user_min, ActorMatchMin::UserMatch, "{json}");
+            assert!(!lookup_failed);
+        }
     }
 
     fn failing_user_lookup(_: &DUserType<'_>) -> nix::Result<Option<u32>> {
