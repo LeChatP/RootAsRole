@@ -375,29 +375,7 @@ impl ExecRunner {
         let res = unsafe { libc::waitpid(self.monitor_pid, &raw mut status, libc::WNOHANG) };
         if res > 0 {
             debug!("runner: monitor exited with status {status}");
-
-            // Critical: Restore terminal settings and foreground pgrp to prevent freeze on next invocation
-            if self.term_raw {
-                if let Err(e) = self.pipe.left_mut().restore(false) {
-                    warn!("runner: failed to restore terminal settings: {e}");
-                } else {
-                    debug!("runner: terminal settings restored");
-                }
-            }
-
-            // Restore foreground process group to parent
-            if self.foreground {
-                if let Err(e) = self.pipe.left_mut().tcsetpgrp_nobg(self.parent_pgrp) {
-                    warn!("runner: failed to restore foreground pgrp: {e}");
-                } else {
-                    debug!(
-                        "runner: restored foreground pgrp to parent ({})",
-                        self.parent_pgrp.inner()
-                    );
-                }
-            }
-
-            let _ = self.pipe.flush_left();
+            // the output left and the terminal are done after the event loop
             registry.set_exit(std::process::ExitStatus::from_raw(status));
         }
     }
@@ -772,7 +750,10 @@ fn run_in_pty(
         .send_monitor_message(&MonitorMessage::Edge);
     debug!("runner(pty): sent stop edge to monitor");
 
-    // restore
+    // As sudo-rs does: the output left first, while the terminal is still raw (once restored,
+    // the newlines that the pty made CR LF came as CR CR LF), then the settings of the user,
+    // without discarding what the user typed ahead (TCSADRAIN), and only in the foreground.
+    let _ = runner.pipe.flush_left();
     if runner.term_raw
         && runner
             .pipe
@@ -780,15 +761,13 @@ fn run_in_pty(
             .as_tty()
             .and_then(|tty| tty.tcgetpgrp())
             .is_ok_and(|pgrp| pgrp == runner.parent_pgrp)
+        && let Err(e) = runner.pipe.left_mut().restore(false)
     {
-        runner.pipe.left_mut().restore(true)?;
+        warn!("runner(pty): cannot restore the terminal settings: {e}");
     }
 
     match res {
-        StopReason::Exit(status) => {
-            let _ = runner.pipe.flush_left();
-            Ok(status)
-        }
+        StopReason::Exit(status) => Ok(status),
         StopReason::Break(e) => Err(e),
     }
 }
