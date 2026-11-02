@@ -21,7 +21,7 @@ use serde_json::Value;
 use std::os::unix::fs::PermissionsExt;
 use std::{fs::File, io::stdin, process::Command};
 
-use crate::security::seccomp_lock;
+use crate::security::{editor_lock, seccomp_lock};
 
 pub struct Defer<F: FnOnce()>(Option<F>);
 
@@ -207,6 +207,7 @@ fn editor_command(editor: &str, path: &Path) -> Command {
     cmd
 }
 
+#[allow(clippy::too_many_lines)]
 fn edit_internal<P, R, W, F, T: Serialize + DeserializeOwned + Warn + Debug + WithoutVersion>(
     folder: &P,
     config: &mut T,
@@ -238,12 +239,30 @@ where
     file.rewind()?;
     debug!("Rewound temporary file");
 
+    // owned, so the pre_exec closure of the child can hold them (the editor sandbox below)
+    let lock_folder = folder.as_ref().to_path_buf();
+    let lock_editor = editor.to_string();
+
     loop {
         let mut cmd = editor_command(editor, &path);
         debug!("Launching editor: {cmd:?}");
-        // SAFETY: chsr is single-threaded when it launches the editor, so the forked child cannot inherit
-        // a lock held by another thread. `seccomp_lock` only installs a filter on the child.
-        unsafe { cmd.pre_exec(seccomp_lock) };
+        // The editor child is confined: a nested Landlock domain (write only the temporary folder,
+        // run only the editor and its interpreter) then the seccomp filter. Skipped under tests,
+        // whose editor is a shell-script mock that the sandbox would stop; the sandbox is covered
+        // by the security module's own tests and the VM end-to-end checks.
+        if !cfg!(test) {
+            let child_folder = lock_folder.clone();
+            let child_editor = lock_editor.clone();
+            // SAFETY: chsr is single-threaded when it launches the editor, so the forked child
+            // cannot inherit a lock held by another thread. editor_lock and seccomp_lock only
+            // restrict the child.
+            unsafe {
+                cmd.pre_exec(move || {
+                    editor_lock(&child_folder, &child_editor)?;
+                    seccomp_lock()
+                });
+            }
+        }
         let status = cmd
             .spawn()
             .map_err(|e| format!("Failed to launch editor: {e}"))?

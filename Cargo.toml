@@ -79,7 +79,7 @@ ssd = []
 hierarchy = []
 timeout = []
 landlock = ["dep:landlock", "dep:bitflags", "dep:globset"]
-editor = ["dep:landlock", "dep:libseccomp", "dep:pest", "dep:pest_derive", "dep:indexmap", "dep:konst"]
+editor = ["dep:landlock", "dep:libseccomp", "dep:pest", "dep:pest_derive", "dep:indexmap", "dep:konst", "dep:goblin"]
 fuzzing = []
 
 [lints.rust]
@@ -129,7 +129,7 @@ landlock = { version = "0.4", optional = true }
 libseccomp = { version = "0.4", optional = true }
 bitflags = { version = ">=2.9, <2.14", default-features = false, optional = true }
 konst = { version= "0.4", default-features = false, optional = true, features = ["parsing_proc", "iter"] }
-
+goblin = { version = "0.10", default-features = false, optional = true, features = ["elf64", "elf32", "endian_fd"] }
 
 [dev-dependencies]
 log = { version = "0.4", default-features = false, features = ["std"] }
