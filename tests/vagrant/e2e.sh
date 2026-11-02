@@ -1485,6 +1485,42 @@ signal_reaches_a_command_of_another_user() {
     return $rc
 }
 
+# a command that ignores SIGHUP (nohup, trap '' HUP) goes on when the user's terminal is gone, as
+# under sudo: dosr stopped at the first error of the terminal, writing what the command printed
+# after the hangup, and its monitor terminated the command; dosr is the controlling process of
+# the terminal here (setpriv execs it), which gets the SIGHUP of the hangup
+command_that_ignores_sighup_survives_the_terminal() {
+    local out=/tmp/rar-e2e-hup
+    command -v python3 >/dev/null && command -v setpriv >/dev/null || return 77
+    rm -f "$out"
+    TEST_USER=$TEST_USER OUT=$out python3 - <<'EOF'
+import os, pty, pwd, select, time
+user = pwd.getpwnam(os.environ["TEST_USER"])
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvp("setpriv", ["setpriv", f"--reuid={user.pw_uid}", f"--regid={user.pw_gid}",
+                          "--init-groups", "dosr", "-r", "e2e", "-t", "shell", "/usr/bin/sh", "-c",
+                          f"trap '' HUP; echo READY; sleep 2; echo more; sleep 1; "
+                          f"echo alive > {os.environ['OUT']}"])
+out, end = b"", time.time() + 10
+while b"READY" not in out and time.time() < end:
+    if select.select([fd], [], [], 0.1)[0]:
+        try:
+            out += os.read(fd, 4096)
+        except OSError:
+            break
+# the terminal hangs up
+os.close(fd)
+time.sleep(6)
+EOF
+    [ "$(cat "$out" 2>/dev/null)" = alive ] || {
+        echo "the command did not go on after the hangup" >&2
+        rm -f "$out"
+        return 1
+    }
+    rm -f "$out"
+}
+
 # the signals that the caller ignores stay ignored by the command, with a terminal and without:
 # nohup (SIGHUP) and trap '' INT, as under sudo; dosr gave every signal its default action (the
 # output into a file: nohup sends that of a command on a terminal to nohup.out)
@@ -1670,5 +1706,6 @@ check "the password prompt gives the echo back on ^Z and ^C, and shows again aft
 check "dosr dumps no core, through a file or a pipe, even with fs.suid_dumpable = 1" dosr_dumps_no_core
 check "a signal sent to dosr reaches a command that runs as root or as another user" signal_reaches_a_command_of_another_user
 check "the signals that the caller ignores stay ignored by the command" command_keeps_the_signals_that_the_caller_ignores
+check "a command that ignores SIGHUP goes on when the terminal is gone" command_that_ignores_sighup_survives_the_terminal
 check "the command gets the core limit of the caller" command_gets_the_core_limit_of_the_caller
 exit "$FAILED"

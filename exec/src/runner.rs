@@ -105,8 +105,20 @@ impl Process for ExecRunner {
         match event {
             RunnerEvent::PipeLeft(e) => {
                 trace!("runner: pipe left event {e:?}");
-                if let Err(err) = self.pipe.on_left_event(e, registry) {
-                    registry.set_break(err);
+                // As sudo-rs does: a terminal that is gone (hung up, revoked) is no longer
+                // polled, and the command goes on with the SIGHUP of the kernel, which it may
+                // ignore (nohup); breaking the loop here terminated it.
+                if self
+                    .pipe
+                    .left()
+                    .as_tty()
+                    .and_then(|tty| tty.tcgetsid())
+                    .is_err()
+                {
+                    warn!("runner: the terminal is gone, its events are ignored");
+                    self.pipe.ignore_events(registry);
+                } else if let Err(err) = self.pipe.on_left_event(e, registry) {
+                    debug!("runner: terminal event {e:?}: {err}");
                 }
             }
             RunnerEvent::PipeRight(e) => {
