@@ -10,7 +10,10 @@ use landlock::{
 use libseccomp::{ScmpAction, ScmpArch, ScmpFilterContext, ScmpSyscall};
 use log::debug;
 
-use crate::{cli::editor::SYSTEM_EDITOR_LIST, util::RAR_CFG_PATH};
+use crate::{
+    cli::editor::SYSTEM_EDITOR_LIST,
+    util::{CHSR_RUN_DIR, RAR_CFG_PATH},
+};
 
 /// The ELF interpreter of the editor, read from the binary itself: the exact loader keeps execute
 /// (the kernel checks `MAY_EXEC` on it when the editor starts), without guessing its path.
@@ -73,6 +76,12 @@ pub fn full_program_lock(
         .add_rule(PathBeneath::new(
             PathFd::new(folder)?,
             AccessFs::from_all(ABI::V6),
+        ))?
+        // the folder itself is removed at the end, which is the right to remove a directory of
+        // its parent: /run/chsr holds only the folders of chsr, where /tmp holds every user's
+        .add_rule(PathBeneath::new(
+            PathFd::new(CHSR_RUN_DIR)?,
+            AccessFs::RemoveDir,
         ))?;
     let optional = SYSTEM_EDITOR_LIST
         .iter()

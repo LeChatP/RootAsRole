@@ -981,6 +981,24 @@ sys.exit(1 if failed else 0)
 EOF
 }
 
+# chsr removes its temporary folder, the editor's included: Landlock let it empty the folder but
+# not remove it from /tmp, and every chsr command left one there (#118)
+chsr_removes_its_temporary_folder() {
+    local before after rc
+    before=$(ls -d /run/chsr/* /tmp/chsr_* 2>/dev/null | sort)
+    chsr list >/dev/null 2>&1 || return 1
+    if [ -x /usr/bin/vim ]; then
+        chsr_editor_works_with vim 2>/dev/null
+        rc=$?
+        [ "$rc" -eq 0 ] || return "$rc"
+    fi
+    after=$(ls -d /run/chsr/* /tmp/chsr_* 2>/dev/null | sort)
+    [ "$before" = "$after" ] || {
+        comm -13 <(echo "$before") <(echo "$after") >&2
+        return 1
+    }
+}
+
 # the groups of id -G, sorted
 sorted_groups() {
     tr ' ' '\n' | sort -n | tr '\n' ' '
@@ -1378,6 +1396,7 @@ check "chsr editor works with nano, under its sandbox" chsr_editor_works_with na
 check "chsr editor works with emacs, under its sandbox" chsr_editor_works_with emacs
 check "chsr editor works with joe, under its sandbox" chsr_editor_works_with joe
 check "chsr editor works with micro, under its sandbox" chsr_editor_works_with micro
+check "chsr removes its temporary folder, the one of the editor included" chsr_removes_its_temporary_folder
 check "-- ends the options of dosr" double_dash_ends_the_options
 check "dosr -i shows None for a task without capabilities" info_shows_no_capabilities_as_none
 check "a task that changes the user gives the groups of the target user" groups_of_the_target_user

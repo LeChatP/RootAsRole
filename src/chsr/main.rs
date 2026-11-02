@@ -50,7 +50,7 @@ fn main() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
 
     use crate::{
         cli::editor::defer,
-        util::{RAR_CFG_DATA_PATH, RAR_CFG_PATH},
+        util::{CHSR_RUN_DIR, RAR_CFG_DATA_PATH, RAR_CFG_PATH, secure_dir},
     };
     use ::landlock::{RestrictionStatus, RulesetStatus};
     use capctl::Cap;
@@ -91,8 +91,14 @@ fn main() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
     }
 
     // not in TMPDIR, which the user chooses when the policy keeps it: a folder in a directory
-    // that the user owns can be renamed and replaced; /tmp is sticky
-    let folder = match nix::unistd::mkdtemp(&Path::new("/tmp").join("chsr_XXXXXX")) {
+    // that the user owns can be renamed and replaced; in /run/chsr, where Landlock lets chsr
+    // remove it at the end, which it could not in /tmp without the right to remove any directory
+    // there (#118)
+    let folder = match secure_dir(Path::new(CHSR_RUN_DIR)).and_then(|()| {
+        Ok(nix::unistd::mkdtemp(
+            &Path::new(CHSR_RUN_DIR).join("XXXXXX"),
+        )?)
+    }) {
         Ok(folder) => folder,
         Err(e) => return Ok(failure(&format!("cannot create a temporary folder: {e}"))),
     };
