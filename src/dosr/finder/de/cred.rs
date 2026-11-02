@@ -202,7 +202,8 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
         #[serde(field_identifier, rename_all = "lowercase")]
         #[repr(u8)]
         enum Field {
-            #[serde(alias = "d")]
+            // "default_behavior" as core reads it: a set that chsr saved was a policy refused
+            #[serde(alias = "d", alias = "default_behavior")]
             Default,
             #[serde(alias = "f")]
             Fallback,

@@ -51,7 +51,13 @@ where
 pub struct SRole {
     #[serde(alias = "n", default, skip_serializing_if = "String::is_empty")]
     pub name: String,
-    #[serde(alias = "a", default, skip_serializing_if = "Vec::is_empty")]
+    // "users" as dosr reads it: chsr did not see the actors written so, which dosr granted
+    #[serde(
+        alias = "a",
+        alias = "users",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub actors: Vec<SActor>,
     #[serde(alias = "t", default, skip_serializing_if = "Vec::is_empty")]
     pub tasks: Vec<Rc<RefCell<STask>>>,
@@ -192,7 +198,12 @@ pub struct SCredentials {
     #[serde(alias = "u", skip_serializing_if = "Option::is_none")]
     #[builder(into)]
     pub setuid: Option<SUserEither>,
-    #[serde(alias = "g", skip_serializing_if = "Option::is_none")]
+    // "setgroups" as dosr reads it: chsr did not see the groups written so, which dosr gave
+    #[serde(
+        alias = "g",
+        alias = "setgroups",
+        skip_serializing_if = "Option::is_none"
+    )]
     #[builder(into)]
     pub setgid: Option<SGroupsEither>,
     // "caps" as in dosr: a task written with it must not look capability-free in chsr

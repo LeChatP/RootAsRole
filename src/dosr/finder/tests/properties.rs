@@ -860,6 +860,238 @@ fn test_core_round_trip_keeps_the_decision() {
     }
 }
 
+/// The names that the fields of each object may be written with, the first one being the name
+/// that core writes: the aliases of core and those of dosr, which reads the policy with
+/// deserializers of its own.
+const POLICY_FIELDS: &[&[&str]] = &[&["roles", "r"], &["options", "o"]];
+const ROLE_FIELDS: &[&[&str]] = &[
+    &["name", "n"],
+    &["actors", "a", "users"],
+    &["tasks", "t"],
+    &["options", "o"],
+];
+const TASK_FIELDS: &[&[&str]] = &[
+    &["name", "n"],
+    &["cred", "i", "credentials"],
+    &["commands", "c", "cmds"],
+    &["options", "o"],
+];
+const CRED_FIELDS: &[&[&str]] = &[
+    &["setuid", "u"],
+    &["setgid", "g", "setgroups"],
+    &["caps", "c", "capabilities"],
+];
+const COMMANDS_FIELDS: &[&[&str]] = &[
+    &["default", "d", "default_behavior"],
+    &["add", "a"],
+    &["del", "s", "sub"],
+];
+const SETUID_SET_FIELDS: &[&[&str]] = &[
+    &["default", "d"],
+    &["fallback", "f"],
+    &["add", "a"],
+    &["sub", "s", "del"],
+];
+const SETGID_SET_FIELDS: &[&[&str]] = &[
+    &["default", "d", "default_behavior"],
+    &["fallback", "f"],
+    &["add", "a"],
+    &["sub", "s", "del"],
+    &["from", "o"],
+];
+
+/// Some tasks of `policy` with a set of users or of groups that the command may run as, instead
+/// of one user or one group.
+fn with_cred_sets(rng: &mut Rng, policy: &mut Value) {
+    for role in policy["roles"].as_array_mut().unwrap() {
+        for task in role["tasks"].as_array_mut().unwrap() {
+            if rng.below(3) == 0 {
+                let mut set = json!({"default": rng.pick(&["none", "all"])});
+                if rng.below(2) == 0 {
+                    set["fallback"] = rng
+                        .pick(&[json!("root"), json!(0), json!("nobody")])
+                        .clone();
+                }
+                if rng.below(2) == 0 {
+                    set["add"] = json!(["nobody", 0]);
+                }
+                if rng.below(2) == 0 {
+                    set["sub"] = json!(["root"]);
+                }
+                task["cred"]["setuid"] = set;
+            }
+            if rng.below(3) == 0 {
+                let mut set = json!({"default": rng.pick(&["none", "all"])});
+                if rng.below(2) == 0 {
+                    set["fallback"] = rng
+                        .pick(&[json!("root"), json!(0), json!(["root", 0])])
+                        .clone();
+                }
+                if rng.below(2) == 0 {
+                    set["add"] = json!([["root"], 0]);
+                }
+                if rng.below(2) == 0 {
+                    set["from"] = json!(rng.pick(&["caller", "target"]));
+                }
+                task["cred"]["setgid"] = set;
+            }
+        }
+    }
+}
+
+/// A list of ids and names, each id as it is or as a string of digits, a list in it included.
+fn respelled_ids(rng: &mut Rng, ids: &Value) -> Value {
+    match ids.as_array() {
+        Some(ids) => json!(
+            ids.iter()
+                .map(|id| respelled_ids(rng, id))
+                .collect::<Vec<_>>()
+        ),
+        None => respelled_id(rng, ids),
+    }
+}
+
+/// `object` with each of its fields under one of its names in `fields`, the value given by
+/// `value` for the canonical name.
+fn respelled_fields(
+    rng: &mut Rng,
+    object: &Value,
+    fields: &[&[&str]],
+    mut value: impl FnMut(&mut Rng, &str, &Value) -> Value,
+) -> Value {
+    let mut written = serde_json::Map::new();
+    for (key, field) in object.as_object().unwrap() {
+        let names = fields.iter().find(|names| names[0] == key);
+        let name = names.map_or(key.as_str(), |names| *rng.pick(names));
+        written.insert(name.to_string(), value(rng, key, field));
+    }
+    Value::Object(written)
+}
+
+/// An id as it is, or as a string of digits.
+fn respelled_id(rng: &mut Rng, id: &Value) -> Value {
+    match id.as_u64() {
+        Some(id) if rng.below(2) == 0 => json!(id.to_string()),
+        _ => id.clone(),
+    }
+}
+
+/// An actor in its typed form, or in its short form, with its id as it is or as a string.
+fn respelled_actor(rng: &mut Rng, actor: &Value) -> Value {
+    let id = respelled_id(rng, &actor["id"]);
+    match actor["type"].as_str() {
+        Some("user") => match rng.below(4) {
+            0 => json!({"type": "user", "id": id}),
+            1 => json!({"type": "user", "name": id}),
+            2 => json!({"user": id}),
+            _ => json!({"u": id}),
+        },
+        Some("group") => {
+            let groups = if rng.below(2) == 0 { json!([id]) } else { id };
+            let key = *rng.pick(&["id", "groups", "names", "name"]);
+            match rng.below(3) {
+                0 => json!({"type": "group", key: groups}),
+                1 => json!({"group": groups}),
+                _ => json!({"g": groups}),
+            }
+        }
+        _ => actor.clone(),
+    }
+}
+
+/// `policy` written with other spellings that mean the same: the aliases of the fields, the short
+/// forms of the actors, the ids as strings of digits.
+fn respelled(rng: &mut Rng, policy: &Value) -> Value {
+    respelled_fields(rng, policy, POLICY_FIELDS, |rng, key, value| match key {
+        "roles" => json!(
+            value
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|role| respelled_role(rng, role))
+                .collect::<Vec<_>>()
+        ),
+        _ => value.clone(),
+    })
+}
+
+fn respelled_role(rng: &mut Rng, role: &Value) -> Value {
+    respelled_fields(rng, role, ROLE_FIELDS, |rng, key, value| match key {
+        "actors" => json!(
+            value
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|actor| respelled_actor(rng, actor))
+                .collect::<Vec<_>>()
+        ),
+        "tasks" => json!(
+            value
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|task| respelled_task(rng, task))
+                .collect::<Vec<_>>()
+        ),
+        _ => value.clone(),
+    })
+}
+
+fn respelled_task(rng: &mut Rng, task: &Value) -> Value {
+    respelled_fields(rng, task, TASK_FIELDS, |rng, key, value| match key {
+        "cred" => respelled_fields(rng, value, CRED_FIELDS, |rng, key, value| match key {
+            "setuid" if value.is_object() => {
+                respelled_fields(rng, value, SETUID_SET_FIELDS, |rng, _, value| {
+                    respelled_ids(rng, value)
+                })
+            }
+            "setgid" if value.is_object() => {
+                respelled_fields(rng, value, SETGID_SET_FIELDS, |rng, _, value| {
+                    respelled_ids(rng, value)
+                })
+            }
+            "setuid" | "setgid" => respelled_ids(rng, value),
+            _ => value.clone(),
+        }),
+        "commands" if value.is_object() => {
+            respelled_fields(rng, value, COMMANDS_FIELDS, |_, _, value| value.clone())
+        }
+        _ => value.clone(),
+    })
+}
+
+// a policy means the same to dosr and to core whatever its spelling, among those that both read:
+// the aliases of the fields, the short forms of the actors, an id as a string of digits. dosr
+// decides as for the canonical policy, and core reads the same policy, so that what chsr shows
+// and writes back is what dosr decides on (a uid written as a string was a name to dosr only)
+#[test]
+fn test_every_spelling_means_the_same_to_dosr_and_core() {
+    crate::finder::api::register_plugins();
+    for seed in 0..CASES {
+        let mut rng = Rng::new(seed);
+        let mut policy = full_policy(&mut rng);
+        with_cred_sets(&mut rng, &mut policy);
+        let spelled = respelled(&mut rng, &policy);
+        for (cmd, args) in ASKED {
+            assert_eq!(
+                summary(&decide(&spelled, cmd, args, None)),
+                summary(&decide(&policy, cmd, args, None)),
+                "seed {seed}, {cmd} {args:?}: dosr decides otherwise\npolicy {policy}\nspelled {spelled}"
+            );
+        }
+        let core = |policy: &Value| {
+            let read: SPolicy = serde_json::from_value(policy.clone())
+                .unwrap_or_else(|e| panic!("seed {seed}: core refuses {policy}: {e}"));
+            serde_json::to_value(&read).unwrap()
+        };
+        assert_eq!(
+            core(&spelled),
+            core(&policy),
+            "seed {seed}: core reads otherwise\npolicy {policy}\nspelled {spelled}"
+        );
+    }
+}
+
 /// Write `data` in `path` like chsr, with rootasrole-core.
 fn write_versioned<T: VersionedData>(path: &Path, data: &Versioning<T>, method: StorageMethod) {
     write_config(data, &mut std::fs::File::create(path).unwrap(), method).unwrap();
