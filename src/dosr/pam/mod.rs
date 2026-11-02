@@ -14,7 +14,7 @@ use nonstick2::{
     Result as PamResult, TransactionBuilder, conv::Demux, items::Items, items::ItemsMut,
     libpam::AccountManaged, libpam::SessionActive,
 };
-use rootasrole_core::{eprintln_ignore_io_error, println_ignore_io_error};
+use rootasrole_core::eprintln_ignore_io_error;
 
 use crate::finder::PasswordSettings;
 #[cfg(feature = "timeout")]
@@ -61,6 +61,17 @@ impl SrConversationHandler<'_> {
             Terminal::open_tty()
         }
     }
+    /// Show a message of a PAM module where the prompts go, as sudo-rs does (`handle_info` in
+    /// `src/pam/converse.rs`): on the terminal, or on stderr with `-S` or without a terminal. On
+    /// stdout, it went into the output of the command (`dosr cmd >file`).
+    fn show(&self, message: &str) {
+        if let Ok(mut term) = self.open() {
+            let _ = term.prompt(&format!("{message}\n"));
+        } else {
+            eprintln_ignore_io_error!("{message}");
+        }
+    }
+
     /// Whether PAM asks for the password with its default prompt, `Password:` or
     /// `<user>'s Password:`, optionally followed by one space.
     fn is_pam_password_prompt(&self, prompt: &impl AsRef<str>) -> bool {
@@ -119,13 +130,15 @@ impl ConversationAdapter for SrConversationHandler<'_> {
     }
 
     fn error_msg(&self, message: impl AsRef<std::ffi::OsStr>) {
-        error!("{}", message.as_ref().to_string_lossy());
-        eprintln_ignore_io_error!("{}", message.as_ref().to_string_lossy());
+        let message = message.as_ref().to_string_lossy();
+        error!("{message}");
+        self.show(&message);
     }
 
     fn info_msg(&self, message: impl AsRef<std::ffi::OsStr>) {
-        info!("{}", message.as_ref().to_string_lossy());
-        println_ignore_io_error!("{}", message.as_ref().to_string_lossy());
+        let message = message.as_ref().to_string_lossy();
+        info!("{message}");
+        self.show(&message);
     }
 }
 
@@ -534,19 +547,18 @@ mod tests {
 
     #[test]
     fn test_conversation_handler_error_msg() {
-        let handler = SrConversationHandler::default();
+        // on stderr, not on the terminal of the developer
+        let handler = SrConversationHandler::builder().use_stdin(true).build();
 
         // This test verifies the error_msg method doesn't panic
-        // In a real test environment, you might want to capture stderr
         handler.error_msg(OsStr::new("Test error message"));
     }
 
     #[test]
     fn test_conversation_handler_info_msg() {
-        let handler = SrConversationHandler::default();
+        let handler = SrConversationHandler::builder().use_stdin(true).build();
 
         // This test verifies the info_msg method doesn't panic
-        // In a real test environment, you might want to capture stdout
         handler.info_msg(OsStr::new("Test info message"));
     }
 

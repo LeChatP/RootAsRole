@@ -24,6 +24,8 @@ OUTER_TTY=/tmp/rar-e2e-outer-tty
 NOT_EXECUTABLE=/var/tmp/rar-e2e-not-executable
 # a PAM module built for echo_on_question_is_answered, in the directory of pam_unix.so
 ECHO_ON_MODULE=pam_rar_e2e_echo_on.so
+# a PAM module built for pam_messages_stay_out_of_the_output
+MESSAGE_MODULE=pam_rar_e2e_message.so
 # the command that dosr names to read why it refused the policy (RAR_LOG_COMMAND)
 LOG_COMMAND=(journalctl -t dosr -p info)
 # where dosr keeps the cookies of the authentications (RAR_TIMEOUT_STORAGE)
@@ -221,6 +223,7 @@ cleanup() {
     remove_policy "$E2E_POLICY"
     rm -f "$TTY_SCRIPT" "$NOT_EXECUTABLE"
     find /lib /usr/lib -name "$ECHO_ON_MODULE" -path '*security*' -delete 2>/dev/null
+    find /lib /usr/lib -name "$MESSAGE_MODULE" -path '*security*' -delete 2>/dev/null
     userdel -r "$TEST_USER" 2>/dev/null
 }
 
@@ -678,6 +681,48 @@ EOF
     rm -f "${dir:?}/$ECHO_ON_MODULE"
     forget_authentications
     [ $rc = 0 ] || echo "dosr: $(head -c 300 <<<"$out")" >&2
+    return $rc
+}
+
+# the messages of PAM modules (PAM_TEXT_INFO, PAM_ERROR_MSG) go to the user's terminal, like
+# the prompts, or to stderr without one: on stdout, they went into the output of the command
+# (dosr cmd >file); the module built here tells both from the account stack, which runs for a
+# task that skips the authentication, without heeding PAM_SILENT, as some modules do
+pam_messages_stay_out_of_the_output() {
+    local dir src out err tty_out rc=0
+    command -v gcc >/dev/null || return 77
+    dir=$(dirname "$(find /lib /usr/lib -name pam_unix.so -path '*security*' 2>/dev/null | head -n 1)")
+    [ -d "$dir" ] || return 77
+    src=$(mktemp --suffix=.c)
+    cat >"$src" <<'EOF'
+#include <security/pam_ext.h>
+#include <security/pam_modules.h>
+#include <stdlib.h>
+PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc, const char **argv) {
+    pam_info(pamh, "rar-e2e information");
+    pam_error(pamh, "rar-e2e warning");
+    return PAM_SUCCESS;
+}
+EOF
+    gcc -shared -fPIC -o "$dir/$MESSAGE_MODULE" "$src" -lpam || rc=1
+    rm -f "$src"
+    [ $rc = 0 ] || return 1
+    cp -p "$PAM_SERVICE" "$PAM_SERVICE_BACKUP" || return 1
+    sed -i "1a account optional $MESSAGE_MODULE" "$PAM_SERVICE"
+    err=$(mktemp)
+    out=$(as_user dosr -r e2e -t echo /usr/bin/echo hello 2>"$err")
+    : >"$OUTER_TTY"
+    chmod 666 "$OUTER_TTY"
+    tty_out=$(no_input | as_user script -qec "dosr -r e2e -t echo /usr/bin/echo hello >$OUTER_TTY" /dev/null |
+        tr -d '\r')
+    restore_pam_service
+    rm -f "${dir:?}/$MESSAGE_MODULE"
+    [ "$out" = hello ] && grep -q 'rar-e2e information' "$err" && grep -q 'rar-e2e warning' "$err" &&
+        [ "$(cat "$OUTER_TTY")" = hello ] && grep -q 'rar-e2e information' <<<"$tty_out" &&
+        grep -q 'rar-e2e warning' <<<"$tty_out" || rc=1
+    [ $rc = 0 ] || printf '%s\n' "stdout: $out" "stderr: $(cat "$err")" \
+        "into a file, from a terminal: $(cat "$OUTER_TTY")" "terminal: $tty_out" >&2
+    rm -f "$err" "$OUTER_TTY"
     return $rc
 }
 
@@ -1524,6 +1569,7 @@ check "the PAM service of dosr opens no login session" pam_opens_no_login_sessio
 check "pam_faillock counts the failures of dosr" failures_are_counted_by_pam_faillock
 check "pam_rootok does not let the caller in" pam_rootok_does_not_let_the_caller_in
 check "a question that PAM shows in clear gets its answer" echo_on_question_is_answered
+check "the messages of PAM go to the terminal or stderr, not into the output of the command" pam_messages_stay_out_of_the_output
 check "a password that is not UTF-8 is given to PAM as typed" password_that_is_not_utf8_is_accepted
 check "the audit records of PAM name dosr, with a session only for a command that is started" audit_records_name_dosr
 check "pam_unix logs a session only for a command that is started, and its close" pam_session_only_for_a_command_that_is_started
