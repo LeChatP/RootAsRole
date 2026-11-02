@@ -368,17 +368,7 @@ impl ExecRunner {
     }
 
     fn is_self_terminating(&self, signaler_pid: libc::pid_t) -> bool {
-        if signaler_pid <= 0 || self.command_pid <= 0 {
-            return false;
-        }
-
-        if signaler_pid == self.command_pid {
-            return true;
-        }
-
-        // SAFETY: getpgid does not access memory
-        let signaler_pgrp = unsafe { libc::getpgid(signaler_pid) };
-        signaler_pgrp == self.command_pid
+        is_self_terminating(signaler_pid, self.command_pid)
     }
 
     fn check_monitor_exit(&mut self, registry: &mut EventRegistry<Self>) {
@@ -458,7 +448,7 @@ pub fn run_no_pty(
                         let _ = signal_child(child_pid, libc::SIGWINCH, false);
                     }
                     _ => {
-                        if info.pid > 0 && info.pid == child_pid {
+                        if is_self_terminating(info.pid, child_pid) {
                             continue;
                         }
                         if is_forward_signal_allowed(info.signal)
@@ -782,6 +772,23 @@ fn run_in_pty(
         StopReason::Exit(status) => Ok(status),
         StopReason::Break(e) => Err(e),
     }
+}
+
+/// Whether a signal sent by `signaler_pid` is one that the command sent itself, which the
+/// runner does not give it again, as sudo-rs decides it (`is_self_terminating` of
+/// `exec/use_pty/parent.rs` and `exec/no_pty.rs`): sent by the command, by a process of its group,
+/// or by a process of the group that dosr leads (without a pty, the command is in it, and a
+/// signal to the group reached it already).
+fn is_self_terminating(signaler_pid: libc::pid_t, command_pid: libc::pid_t) -> bool {
+    if signaler_pid <= 0 || command_pid <= 0 {
+        return false;
+    }
+    if signaler_pid == command_pid {
+        return true;
+    }
+    // SAFETY: getpgid and getpid do not access memory
+    let (signaler_pgrp, dosr_pid) = unsafe { (libc::getpgid(signaler_pid), libc::getpid()) };
+    signaler_pgrp == command_pid || signaler_pgrp == dosr_pid
 }
 
 /// Changes the action of a signal until it is dropped, then puts the previous action back.

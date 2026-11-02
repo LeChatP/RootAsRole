@@ -1511,6 +1511,32 @@ signal_reaches_every_process_of_the_command() {
     return $rc
 }
 
+# without a terminal, a signal that a process of the command sends to its process group (kill 0)
+# reaches the command once, as under sudo: dosr, in that group, gave it again; the command counts
+# the signals it gets through the wakeup fd of python, a byte for each
+signal_to_the_group_reaches_the_command_once() {
+    local script=/tmp/rar-e2e-group.py got
+    command -v python3 >/dev/null || return 77
+    cat >"$script" <<'EOF'
+import os, signal, time
+r, w = os.pipe()
+os.set_blocking(r, False)
+os.set_blocking(w, False)
+signal.signal(signal.SIGTERM, lambda *args: None)
+signal.set_wakeup_fd(w)
+os.system("kill -TERM 0")
+time.sleep(1)
+print(len(os.read(r, 100)))
+EOF
+    chmod 644 "$script"
+    got=$(as_user setsid dosr -r e2e -t shell /usr/bin/sh -c "exec python3 $script" </dev/null 2>&1)
+    rm -f "$script"
+    [ "$got" = 1 ] || {
+        echo "the command got SIGTERM $got times" >&2
+        return 1
+    }
+}
+
 # a command that ignores SIGHUP (nohup, trap '' HUP) goes on when the user's terminal is gone, as
 # under sudo: dosr stopped at the first error of the terminal, writing what the command printed
 # after the hangup, and its monitor terminated the command; dosr is the controlling process of
@@ -1733,6 +1759,7 @@ check "dosr dumps no core, through a file or a pipe, even with fs.suid_dumpable 
 check "a signal sent to dosr reaches a command that runs as root or as another user" signal_reaches_a_command_of_another_user
 check "the signals that the caller ignores stay ignored by the command" command_keeps_the_signals_that_the_caller_ignores
 check "a signal given to the command through a pty reaches its process group" signal_reaches_every_process_of_the_command
+check "without a terminal, a signal of the command to its group reaches it once" signal_to_the_group_reaches_the_command_once
 check "a command that ignores SIGHUP goes on when the terminal is gone" command_that_ignores_sighup_survives_the_terminal
 check "the command gets the core limit of the caller" command_gets_the_core_limit_of_the_caller
 exit "$FAILED"
