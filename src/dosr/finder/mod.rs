@@ -370,7 +370,9 @@ fn login_groups(user: &User) -> nix::Result<Vec<Group>> {
 
 impl BestExecSettings {
     /// The settings of the best task of the policy `data` for the command line, refused when
-    /// another task is as good as the best one.
+    /// another task is as good as the best one; for the tests and the fuzz targets, dosr itself
+    /// goes through [`find_best_exec_settings`].
+    #[cfg(any(test, feature = "fuzzing"))]
     pub(crate) fn retrieve_settings<'a>(
         cli: &'a Cli,
         cred: &'a Cred,
