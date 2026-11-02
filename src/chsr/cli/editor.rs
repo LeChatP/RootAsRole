@@ -1147,7 +1147,17 @@ EOF
         assert!(w("Unknown user field"));
         assert!(w("Unknown group in role"));
         assert!(w("Unknown group field"));
-        assert!(w("Unknown task field"));
+        // the fields of the task, once, not those of its role for each task
+        assert!(w("Unknown task field in role 'role1' task 'Name(\"task1\")' : 'unknown_task_field'"));
+        assert!(w("in role 'role1' task 'Name(\"task1\")' : 'unknown_task_opt'"));
+        assert!(!w("task field in role 'role1' task 'Name(\"task2\")'"));
+        assert_eq!(
+            warnings
+                .iter()
+                .filter(|msg| msg.contains("'unknown_role_field'"))
+                .count(),
+            1
+        );
         assert!(w("Unknown cred field"));
         assert!(w("Unknown commands field"));
         assert!(w("Empty command in role"));
