@@ -1148,8 +1148,12 @@ EOF
         assert!(w("Unknown group in role"));
         assert!(w("Unknown group field"));
         // the fields of the task, once, not those of its role for each task
-        assert!(w("Unknown task field in role 'role1' task 'Name(\"task1\")' : 'unknown_task_field'"));
-        assert!(w("in role 'role1' task 'Name(\"task1\")' : 'unknown_task_opt'"));
+        assert!(w(
+            "Unknown task field in role 'role1' task 'Name(\"task1\")' : 'unknown_task_field'"
+        ));
+        assert!(w(
+            "in role 'role1' task 'Name(\"task1\")' : 'unknown_task_opt'"
+        ));
         assert!(!w("task field in role 'role1' task 'Name(\"task2\")'"));
         assert_eq!(
             warnings
