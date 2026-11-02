@@ -214,8 +214,8 @@ const BLOCKED_SYSCALLS: &[&str] = &[
 
 /// The architectures the filter covers besides the native one: a 64-bit process could otherwise
 /// call a blocked syscall through the 32-bit compat ABI, which has its own syscall numbers
-/// (sudo-rs #1230). `add_rule` is fuzzy, so a syscall that an architecture does not define is
-/// skipped there, not an error.
+/// (sudo-rs checks the architecture too, in src/exec/noexec.rs). `add_rule` is fuzzy, so a
+/// syscall that an architecture does not define is skipped there, not an error.
 #[cfg(target_arch = "x86_64")]
 const COMPAT_ARCHS: &[ScmpArch] = &[ScmpArch::X86, ScmpArch::X32];
 #[cfg(target_arch = "aarch64")]

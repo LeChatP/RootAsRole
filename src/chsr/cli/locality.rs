@@ -1,4 +1,4 @@
-//! Locality of the edits of chsr (#90), checked on generated policies: a command that names a
+//! Locality of the edits of chsr, checked on generated policies: a command that names a
 //! part of the policy (the commands of a task, the options of a role...) changes nothing outside
 //! that part of the saved file, and a command that changes nothing leaves the file as it was.
 //! Otherwise an edit could silently change the rights of another role or task. The policies come

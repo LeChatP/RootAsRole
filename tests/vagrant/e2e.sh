@@ -1076,7 +1076,7 @@ chsr_editor_follows_the_system_editor() {
 }
 
 # chsr removes its temporary folder, the editor's included: Landlock let it empty the folder but
-# not remove it from /tmp, and every chsr command left one there (#118)
+# not remove it from /tmp, and every chsr command left one there
 chsr_removes_its_temporary_folder() {
     local before after rc
     before=$(ls -d /run/chsr/* /tmp/chsr_* 2>/dev/null | sort)
@@ -1183,7 +1183,7 @@ in_a_terminal() {
 
 # the command gets the settings of the user's terminal, which dosr copies before it makes its own
 # terminal raw (it copied the raw settings: no echo, no line editing), and starts with the signals
-# of the caller (sudo-rs #1462): alone, with its input from a pipe, with its output into a pipe,
+# of the caller (sudo-rs ddc4030e): alone, with its input from a pipe, with its output into a pipe,
 # and without a terminal
 command_gets_the_terminal_and_the_signals_of_the_user() {
     local alone plain piped_in piped_out signals no_tty
@@ -1207,7 +1207,7 @@ command_gets_the_terminal_and_the_signals_of_the_user() {
 }
 
 # with its output into a pipe, dosr leaves the user's terminal as it is: another program of the
-# pipeline uses it (sudo-rs #1390, the output flags)
+# pipeline uses it (a bug of sudo-rs, on the output flags)
 terminal_of_a_pipeline_is_left_alone() {
     local alone piped_out
     terminal_script
@@ -1223,7 +1223,7 @@ terminal_of_a_pipeline_is_left_alone() {
 }
 
 # with its output into a pipe, dosr reads nothing of the user's terminal: what the user types goes
-# to the next program of the pipeline (sudo-rs #1260, keystrokes lost in `sudo dmesg | less`)
+# to the next program of the pipeline (a bug of sudo-rs: keystrokes lost in `sudo dmesg | less`)
 keystrokes_go_to_the_end_of_the_pipeline() {
     local out
     out=$({
@@ -1238,7 +1238,7 @@ keystrokes_go_to_the_end_of_the_pipeline() {
 }
 
 # dosr dumps no core while it holds the policy and the PAM handle, whatever fs.suid_dumpable and
-# kernel.core_pattern say: killed by SIGQUIT at its prompt (with the effective uid of root, #105),
+# kernel.core_pattern say: killed by SIGQUIT at its prompt (with the effective uid of root),
 # it leaves no core, through a file (RLIMIT_CORE) or a pipe (not dumpable), even with
 # fs.suid_dumpable = 1 and the core limit of the caller unlimited (raised by root first: the
 # hard limit of root is 0 on the Arch box); SIGQUIT is given its default action, which a job in

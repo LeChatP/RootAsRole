@@ -604,7 +604,7 @@ pub fn writable_version(text: &str) -> Result<Version, String> {
 /// The oldest version whose documents the current version reads as they are.
 ///
 /// From it to the current version, every migration leaves the documents unchanged on the way
-/// up, and the current version gives them the same meaning, or allows less (#41, #47). A
+/// up, and the current version gives them the same meaning, or allows less. A
 /// migration that rewrites the documents on the way up raises it to its `to`.
 pub const UNCHANGED_SINCE: Version = Version::new(4, 1, 0);
 

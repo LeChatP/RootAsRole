@@ -1039,7 +1039,7 @@ mod tests {
         (mask("SigBlk:"), mask("SigIgn:"))
     }
 
-    // sudo-rs #1462: the command starts with the signal mask of the caller, and ignores no other
+    // sudo-rs ddc4030e: the command starts with the signal mask of the caller, and ignores no other
     // signal than the caller, although the runner blocks every signal while it waits for it
     #[test]
     fn run_no_pty_starts_the_command_with_the_signals_of_the_caller() {

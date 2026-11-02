@@ -93,7 +93,7 @@ fn main() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
     // not in TMPDIR, which the user chooses when the policy keeps it: a folder in a directory
     // that the user owns can be renamed and replaced; in /run/chsr, where Landlock lets chsr
     // remove it at the end, which it could not in /tmp without the right to remove any directory
-    // there (#118)
+    // there
     let folder = match secure_dir(Path::new(CHSR_RUN_DIR)).and_then(|()| {
         Ok(nix::unistd::mkdtemp(
             &Path::new(CHSR_RUN_DIR).join("XXXXXX"),

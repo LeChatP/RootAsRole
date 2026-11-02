@@ -1,4 +1,4 @@
-//! Properties of the decision, checked on generated policies (#73): each property is a
+//! Properties of the decision, checked on generated policies: each property is a
 //! hypothesis on how dosr decides, written as a test so that it never becomes a bug. The policies
 //! come from a small generator with a fixed seed: the same cases run each time, without any
 //! dependency, and a failure names its seed.
@@ -1059,7 +1059,7 @@ fn user_and_groups_given(
 }
 
 // -u and -g ask for a user and groups that the task sets, like the runas list of a sudo rule: a
-// task that does not set them is refused, even for the caller (kanban #102)
+// task that does not set them is refused, even for the caller
 #[test]
 fn test_a_user_or_groups_that_the_task_does_not_set_are_refused() {
     let caller = nix::unistd::getuid().as_raw();
@@ -1208,8 +1208,8 @@ fn env_pattern_matches(pattern: &str, name: &str) -> bool {
     }
 }
 
-/// The variables that the command receives, decided by the rules of the env section of the
-/// book: the levels apply in order (the build-time defaults, then global, role and task
+/// The variables that the command receives, decided by reference rules: the levels apply in
+/// order (the build-time defaults, then global, role and task
 /// options); a level that declares `default` (`delete` or `keep`) sets the mode and replaces
 /// the lists that it defines, a level that does not declare it adds its lists to the inherited
 /// ones; then a shell function never passes, `delete` mode passes `keep` and checked `check`
@@ -1288,10 +1288,10 @@ fn reference_env(levels: &[&Value], user: &[(&str, &str)]) -> Vec<String> {
     received
 }
 
-// the env options decide the environment of the command as the book says, for random options
-// at the global, role and task levels
+// the env options decide the environment of the command like reference_env, for random
+// options at the global, role and task levels
 #[test]
-fn test_env_follows_the_book() {
+fn test_env_options_decide_the_environment() {
     let user = [
         ("A", "1"),
         ("B", "2/x"),
@@ -1326,8 +1326,8 @@ fn test_env_follows_the_book() {
     }
 }
 
-/// The `PATH` of the command, decided by the rules of "The `path` option" in the book, with
-/// the inheritance of the env lists (`ResolvedPath::apply` in rootasrole-core): a level that
+/// The `PATH` of the command, decided by reference rules, with the inheritance of the env
+/// lists (`ResolvedPath::apply` in rootasrole-core): a level that
 /// sets `default` (other than `inherit`) sets the mode and replaces the lists that it defines,
 /// a level that does not adds them; then `delete` mode starts empty and the `keep` modes start
 /// from the caller's `PATH`; the directories of the policy come first, a relative directory is
@@ -1392,10 +1392,10 @@ fn reference_path(levels: &[&Value], user_path: &[&str]) -> Vec<String> {
     path
 }
 
-// the path option decides the PATH of the command as the book says, for random options at the
-// global, role and task levels and a caller's PATH with relative directories
+// the path option decides the PATH of the command like reference_path, for random options at
+// the global, role and task levels and a caller's PATH with relative directories
 #[test]
-fn test_path_follows_the_book() {
+fn test_path_options_decide_the_path() {
     let user_path = ["/usr/bin", ".", "/opt/user", "rel", "/bin"];
     let dirs = [
         "/usr/bin",
