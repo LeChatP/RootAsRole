@@ -1304,22 +1304,18 @@ keystrokes_go_to_the_end_of_the_pipeline() {
     }
 }
 
-# a command that makes its terminal raw, as an editor does, gets the keys as they are typed: Enter
-# as a carriage return (C-j and Enter differ in emacs or fzf), ^S and ^Q (save and quit in nano and
-# micro), which the user's terminal must not take for flow control while dosr relays it
-raw_command_gets_the_keys_as_typed() {
-    command -v python3 >/dev/null || return 77
-    TEST_USER=$TEST_USER python3 - <<'EOF'
+# a python harness that runs $1 in a terminal, as the test user, types the keys of $2, and prints
+# what the terminal got; shared by the checks of the terminal of a command run by dosr
+in_a_python_terminal() {
+    TEST_USER=$TEST_USER python3 - "$@" <<'EOF'
 import os, pty, select, sys, time
 
-# timeout in the foreground: in its own process group, dd would be stopped by SIGTTIN
-script = ("stty raw -echo -ixon; echo READY; "
-          "timeout --foreground 5 dd bs=1 count=3 2>/dev/null | od -An -tx1; stty sane")
+argv, keys = sys.argv[1], sys.argv[2:]
 pid, fd = pty.fork()
 if pid == 0:
-    os.execvp("runuser", ["runuser", "-u", os.environ["TEST_USER"], "--",
-                          "dosr", "-r", "e2e", "-t", "shell", "/usr/bin/sh", "-c", script])
+    os.execvp("runuser", ["runuser", "-u", os.environ["TEST_USER"], "--", "/bin/sh", "-c", argv])
 out = b""
+
 
 def read_until(needle, timeout):
     global out
@@ -1334,20 +1330,69 @@ def read_until(needle, timeout):
                 return
             out += data
 
+
 read_until(b"READY", 10)
 time.sleep(0.5)
-for key in (b"\r", b"\x13", b"\x11"):
-    os.write(fd, key)
-    time.sleep(0.3)
+# each key, or "wait:<text>" to wait for a text before the next key
+for key in keys:
+    if key.startswith("wait:"):
+        read_until(key[5:].encode(), 8)
+        time.sleep(0.3)
+    else:
+        os.write(fd, key.encode().decode("unicode_escape").encode("latin-1"))
+        time.sleep(0.3)
 read_until(b"\x00", 8)
 os.waitpid(pid, 0)
-# the output of od, before the OSC 3008 sequence that systemd 258 writes at the end of the session
-got = out.split(b"READY", 1)[-1].split(b"\x1b", 1)[0].split()
-if got[:3] != [b"0d", b"13", b"11"]:
-    print(f"the command got {b' '.join(got[:3]).decode()!r} for Enter, ^S, ^Q: {out!r}",
-          file=sys.stderr)
-    sys.exit(1)
+# what the terminal got after READY, before the OSC 3008 sequence that systemd 258 writes at the
+# end of a session
+sys.stdout.buffer.write(out.split(b"READY", 1)[-1].split(b"\x1b]3008", 1)[0])
 EOF
+}
+
+# a command that makes its terminal raw, as an editor does, gets the keys as they are typed: Enter
+# as a carriage return (C-j and Enter differ in emacs or fzf), ^S and ^Q (save and quit in nano and
+# micro), ^C, ^Z and ^\ (C-c starts the commands of emacs), which the user's terminal must not
+# take for flow control or signals while dosr relays it, as sudo leaves it
+raw_command_gets_the_keys_as_typed() {
+    local got
+    command -v python3 >/dev/null || return 77
+    # timeout in the foreground: in its own process group, dd would be stopped by SIGTTIN
+    got=$(in_a_python_terminal "dosr -r e2e -t shell /usr/bin/sh -c 'stty raw -echo; echo READY; \
+timeout --foreground 5 dd bs=1 count=6 2>/dev/null | od -An -tx1; stty sane'" \
+        '\r' '\x13' '\x11' '\x03' '\x1a' '\x1c' | tr -s ' \r\n' ' ')
+    [ "$got" = " 0d 13 11 03 1a 1c " ] || {
+        echo "the command got '$got' for Enter, ^S, ^Q, ^C, ^Z, ^\\" >&2
+        return 1
+    }
+}
+
+# what the command writes reaches the user's terminal as the pty of the command sets it: a newline
+# becomes CR LF in cooked mode, once (not CR CR LF), and stays LF in raw mode, where a program
+# that draws the screen moves the cursor down with it
+command_output_reaches_the_terminal_as_written() {
+    local got
+    command -v python3 >/dev/null || return 77
+    got=$(in_a_python_terminal "dosr -r e2e -t shell /usr/bin/sh -c 'echo READY; \
+printf \"a\\nb\\n\"; stty raw; printf \"c\\nd\\n\"; stty sane'" | od -An -c | tr -s ' \n' ' ')
+    [ "$got" = ' \r \n a \r \n b \r \n c \n d \n ' ] || {
+        echo "the terminal got '$got'" >&2
+        return 1
+    }
+}
+
+# ^Z stops a command that dosr runs in a pty, with dosr, like a job of the shell, and fg resumes
+# it, which reads what the user types next (RUN""NING: the echo of the typed line is not the
+# output of the command)
+suspended_command_resumes_with_fg() {
+    local got
+    command -v python3 >/dev/null || return 77
+    got=$(in_a_python_terminal "PS1='READY\$ ' bash --norc --noprofile -i" \
+        "dosr -r e2e -t shell /usr/bin/sh -c 'echo RUN\"\"NING; read line; echo GOT=\$line'\\r" \
+        'wait:RUNNING' '\x1a' 'wait:Stopped' 'fg\r' 'hello\r' 'wait:GOT=' 'exit\r' | tr -d '\r')
+    grep -q '^GOT=hello$' <<<"$got" || {
+        echo "the terminal got: $got" >&2
+        return 1
+    }
 }
 
 # dosr dumps no core while it holds the policy and the PAM handle, whatever fs.suid_dumpable and
@@ -1618,7 +1663,9 @@ check "tty owner target gives the terminal to the user of the command" terminal_
 check "the command gets the terminal settings and the signals of the user" command_gets_the_terminal_and_the_signals_of_the_user
 check "with its output into a pipe, dosr leaves the user's terminal as it is" terminal_of_a_pipeline_is_left_alone
 check "with its output into a pipe, the keystrokes go to the next program" keystrokes_go_to_the_end_of_the_pipeline
-check "a command in raw mode gets Enter, ^S and ^Q as they are typed" raw_command_gets_the_keys_as_typed
+check "a command in raw mode gets Enter, ^S, ^Q, ^C, ^Z and ^\\ as they are typed" raw_command_gets_the_keys_as_typed
+check "the output of a command reaches the terminal as its pty sets it, raw or not" command_output_reaches_the_terminal_as_written
+check "^Z stops a command run in a pty with dosr, and fg resumes it" suspended_command_resumes_with_fg
 check "the password prompt gives the echo back on ^Z and ^C, and shows again after fg" prompt_gives_the_echo_back_on_signals
 check "dosr dumps no core, through a file or a pipe, even with fs.suid_dumpable = 1" dosr_dumps_no_core
 check "a signal sent to dosr reaches a command that runs as root or as another user" signal_reaches_a_command_of_another_user

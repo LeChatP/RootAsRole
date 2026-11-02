@@ -408,9 +408,10 @@ impl UserTerm {
         let original_oflag = term.c_oflag;
         // SAFETY: `term` is an initialized termios struct
         unsafe { cfmakeraw(&raw mut term) };
-        // no ICRNL nor IXON here: the keys go to the pty as they are typed, whose settings, copied
-        // from this terminal, turn Enter into a newline and take ^S and ^Q for flow control,
-        // unless the command turns them off (an editor reads ^M, ^S and ^Q as keys)
+        // raw as cfmakeraw makes it, as in sudo-rs: the keys go to the pty as they are typed,
+        // whose settings, copied from this terminal, turn Enter into a newline, ^S and ^Q into
+        // flow control, ^C and ^Z into signals, unless the command turns them off (an editor
+        // reads them as keys); and its output is processed by the pty, not a second time here
         term.c_oflag = if preserve_oflag { original_oflag } else { 0 };
         if with_signals {
             term.c_lflag |= ISIG;
@@ -569,9 +570,10 @@ mod tests {
         unsafe { termios.assume_init() }
     }
 
-    // in raw mode, the user's terminal gives the keys to the pty as they are typed: the pty, set
-    // like the user's terminal, turns Enter into a newline and takes ^S and ^Q for flow control,
-    // unless the command turns them off, as an editor does
+    // in raw mode, as dosr makes it (without signals), the user's terminal gives the keys to the
+    // pty as they are typed: the pty, set like the user's terminal, turns Enter into a newline,
+    // ^S and ^Q into flow control, ^C and ^Z into signals, unless the command turns them off, as
+    // an editor does
     #[test]
     fn test_raw_mode_gives_the_keys_as_typed() {
         use std::os::unix::fs::OpenOptionsExt;
@@ -594,8 +596,8 @@ mod tests {
             libc::ICRNL | libc::IXON
         );
 
-        for preserve_oflag in [false, true] {
-            term.set_raw_mode(true, preserve_oflag)
+        for (with_signals, preserve_oflag) in [(false, false), (false, true), (true, false)] {
+            term.set_raw_mode(with_signals, preserve_oflag)
                 .expect("Failed to set raw mode");
             let raw = settings(&term);
             assert_eq!(
@@ -603,8 +605,8 @@ mod tests {
                 0
             );
             assert_eq!(raw.c_lflag & (libc::ICANON | libc::ECHO), 0);
-            // ^C and ^Z of the user's terminal signal dosr, which gives them to the command
-            assert_eq!(raw.c_lflag & libc::ISIG, libc::ISIG);
+            let isig = if with_signals { libc::ISIG } else { 0 };
+            assert_eq!(raw.c_lflag & libc::ISIG, isig);
             let oflag = if preserve_oflag { cooked.c_oflag } else { 0 };
             assert_eq!(raw.c_oflag, oflag);
 

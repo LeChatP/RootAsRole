@@ -269,7 +269,7 @@ impl ExecRunner {
                     && self
                         .pipe
                         .left_mut()
-                        .set_raw_mode(true, self.preserve_oflag)
+                        .set_raw_mode(false, self.preserve_oflag)
                         .is_ok()
                 {
                     self.term_raw = true;
@@ -323,7 +323,7 @@ impl ExecRunner {
             if self
                 .pipe
                 .left_mut()
-                .set_raw_mode(true, self.preserve_oflag)
+                .set_raw_mode(false, self.preserve_oflag)
                 .is_ok()
             {
                 self.term_raw = true;
@@ -350,7 +350,7 @@ impl ExecRunner {
             );
             self.pipe
                 .left_mut()
-                .set_raw_mode(true, self.preserve_oflag)?;
+                .set_raw_mode(false, self.preserve_oflag)?;
         }
         Ok(())
     }
@@ -638,12 +638,17 @@ fn run_in_pty(
     // input, and writes its lines, like on the user's terminal (sudo-rs exec/use_pty/parent.rs)
     user_term.copy_to(&pty.follower)?;
 
-    if foreground {
-        // Preserve oflag for interactive terminals (keeps ONLCR for proper CR/LF mapping)
-        let preserve = !exec_bg || preserve_oflag;
-        debug!("runner(pty): enabling raw mode preserve_oflag={preserve}");
-        user_term.set_raw_mode(true, preserve)?;
-        term_raw = true;
+    // Raw like sudo-rs makes it (exec/use_pty/parent.rs): without ISIG, ^C, ^Z and ^\ reach the
+    // pty, whose settings make them signals for the command, unless it reads them as keys (C-c in
+    // emacs); and without output processing, done by the pty too (once: with OPOST and ONLCR here,
+    // a newline came as CR CR LF, and as CR LF from a command that writes LF to move down). Not
+    // with the input of the command from a pipe, whose keys dosr does not read.
+    if foreground && !exec_bg {
+        debug!("runner(pty): enabling raw mode preserve_oflag={preserve_oflag}");
+        match user_term.set_raw_mode(false, preserve_oflag) {
+            Ok(()) => term_raw = true,
+            Err(e) => warn!("runner(pty): cannot make the terminal raw: {e}"),
+        }
     }
 
     // Create backchannel
