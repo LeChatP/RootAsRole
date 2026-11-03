@@ -1414,6 +1414,31 @@ suspended_command_resumes_with_fg() {
     }
 }
 
+# ^C and ^\ end a command that dosr runs in a pty, every process of it: the user's terminal is
+# raw without signals, so the keys reach the pty, whose settings make them signals for the
+# process group of the command (RUN""NING, ST""ATUS: the echo of the typed line is not the output;
+# the status is asked on a line of its own, bash drops the rest of a line whose job died of SIGINT;
+# bash writes ESC[?2004l, the end of its bracketed paste, before the output of each command)
+keys_signal_a_command_in_a_pty() {
+    local got
+    command -v python3 >/dev/null || return 77
+    got=$(in_a_python_terminal "PS1='READY\$ ' bash --norc --noprofile -i" \
+        "dosr -r e2e -t shell /usr/bin/sh -c 'echo RUN\"\"NING1; sleep 31 | cat'\\r" \
+        'wait:RUNNING1' '\x03' 'wait:^C' "echo ST\"\"ATUS1=\$?\\r" 'wait:STATUS1=' \
+        "dosr -r e2e -t shell /usr/bin/sh -c 'echo RUN\"\"NING2; sleep 32 | cat'\\r" \
+        'wait:RUNNING2' '\x1c' 'wait:^\' "echo ST\"\"ATUS2=\$?\\r" 'wait:STATUS2=' 'exit\r' |
+        tr -d '\r' | sed 's/\x1b\[?2004[hl]//g')
+    if pgrep -f '^sleep 3[12]$' >/dev/null; then
+        echo "a process of the command is left: $(pgrep -af '^sleep 3[12]$')" >&2
+        pkill -f '^sleep 3[12]$'
+        return 1
+    fi
+    grep -q '^STATUS1=130$' <<<"$got" && grep -q '^STATUS2=131$' <<<"$got" || {
+        echo "the terminal got: $got" >&2
+        return 1
+    }
+}
+
 # after ^Z and bg, dosr does not read the user's terminal, where a read fails with EIO: a line
 # typed for the job in the foreground made it read again at each poll, with a whole CPU; after
 # fg, the command reads what the user types (REA""DING, G""OT: the echo of the typed line is not
@@ -1831,6 +1856,7 @@ check "with its output into a pipe, the keystrokes go to the next program" keyst
 check "a command in raw mode gets Enter, ^S, ^Q, ^C, ^Z and ^\\ as they are typed" raw_command_gets_the_keys_as_typed
 check "the output of a command reaches the terminal as its pty sets it, raw or not" command_output_reaches_the_terminal_as_written
 check "^Z stops a command run in a pty with dosr, and fg resumes it" suspended_command_resumes_with_fg
+check "^C and ^\\ end every process of a command run in a pty" keys_signal_a_command_in_a_pty
 check "after ^Z and bg, dosr leaves the terminal alone, and the command reads it after fg" background_dosr_leaves_the_terminal_alone
 check "with its input from a pipe, a command gets ^C after ^Z and fg" piped_command_gets_ctrl_c_after_fg
 check "the password prompt gives the echo back on ^Z and ^C, and shows again after fg" prompt_gives_the_echo_back_on_signals
