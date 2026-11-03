@@ -818,20 +818,61 @@ pub fn initialize_capabilities(cap: &[Cap]) -> Result<CapState, capctl::Error> {
     Ok(current)
 }
 
-/// Temporarily add capabilities to the effective set to perform an operation, then drop them again
+/// The effective set that [`with_privileges`] found, given back when the operation ends, also by a
+/// panic.
+struct FoundEffective {
+    found: CapSet,
+    given_back: bool,
+}
+
+impl FoundEffective {
+    fn raise(cap: &[Cap]) -> Result<Self, capctl::Error> {
+        let found = CapState::get_current()?.effective;
+        initialize_capabilities(cap)?;
+        Ok(Self {
+            found,
+            given_back: false,
+        })
+    }
+
+    /// What the operation raised leaves the effective set, and so does what the kernel raised
+    /// meanwhile (a change of the effective or the filesystem uid to 0). The capabilities that
+    /// were effective stay, those that a change of the uids took from the permitted set aside.
+    fn give_back(&mut self) -> Result<(), capctl::Error> {
+        self.given_back = true;
+        let mut current = CapState::get_current()?;
+        current.effective = self.found & current.permitted;
+        current.set_current()
+    }
+}
+
+impl Drop for FoundEffective {
+    fn drop(&mut self) {
+        if !self.given_back
+            && let Err(e) = self.give_back()
+        {
+            error!("Cannot drop the capabilities raised for an operation that panicked: {e}");
+            // never go on with them
+            std::process::abort();
+        }
+    }
+}
+
+/// Temporarily add capabilities to the effective set to perform an operation, then give back the
+/// effective set it had, even when the operation panics
 /// # Errors
 /// Returns an error if obtaining the current capability state fails,
 /// if adding the capabilities to the effective set fails,
 /// if setting the new capability state fails,
 /// if the operation fails,
-/// or if dropping the effective capabilities at the end
+/// or if giving back the effective set at the end fails
 pub fn with_privileges<F, R>(cap: &[Cap], f: F) -> std::io::Result<R>
 where
     F: FnOnce() -> std::io::Result<R>,
 {
-    let state = initialize_capabilities(cap)?;
+    let mut found = FoundEffective::raise(cap)?;
     let res = f();
-    stated_drop_effective(state)?;
+    found.give_back()?;
     res
 }
 
@@ -1359,6 +1400,40 @@ mod test {
             })
             .is_ok()
         );
+    }
+
+    // What was effective stays, what the operation raised leaves the effective set, also after an
+    // error and a panic (as root, under `cargo test-root`)
+    #[test]
+    fn test_with_privileges_gives_back_the_effective_set() {
+        drop_effective().unwrap();
+        let effective = || CapState::get_current().unwrap().effective;
+        let mut permitted = CapState::get_current().unwrap().permitted.iter();
+        let (Some(held), Some(raised)) = (permitted.next(), permitted.next()) else {
+            eprintln!("Skipping test, requires two permitted capabilities");
+            return;
+        };
+        initialize_capabilities(&[held]).unwrap();
+        let found = CapSet::from_iter([held]);
+
+        let inside = with_privileges(&[raised], || Ok(effective())).unwrap();
+        assert_eq!(inside, CapSet::from_iter([held, raised]));
+        assert_eq!(effective(), found);
+
+        let failed = with_privileges(&[raised], || -> io::Result<()> {
+            Err(io::Error::other("the operation failed"))
+        });
+        assert!(failed.is_err());
+        assert_eq!(effective(), found);
+
+        let panicked = std::panic::catch_unwind(|| {
+            with_privileges(&[raised], || -> io::Result<()> {
+                panic!("the operation panicked")
+            })
+        });
+        assert!(panicked.is_err());
+        assert_eq!(effective(), found);
+        drop_effective().unwrap();
     }
 
     #[test]
