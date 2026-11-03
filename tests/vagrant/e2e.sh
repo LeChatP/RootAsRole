@@ -1511,6 +1511,25 @@ signal_reaches_every_process_of_the_command() {
     return $rc
 }
 
+# without a terminal, dosr waits for the command without using the CPU: it read its empty signal
+# pipe again at once, and used a whole CPU while the command ran
+dosr_waits_without_a_terminal() {
+    local script=/tmp/rar-e2e-cpu.sh got
+    cat >"$script" <<'EOF'
+t() { awk '{print $14 + $15}' "/proc/$PPID/stat"; }
+a=$(t)
+sleep 2
+echo "$(cat "/proc/$PPID/comm") $(($(t) - a))"
+EOF
+    chmod 644 "$script"
+    got=$(as_user setsid dosr -r e2e -t shell /usr/bin/sh "$script" </dev/null 2>&1)
+    rm -f "$script"
+    [ "${got% *}" = dosr ] && [ "${got#* }" -le 20 ] 2>/dev/null || {
+        echo "the parent of the command and its ticks of CPU in 2 s: $got" >&2
+        return 1
+    }
+}
+
 # without a terminal, a signal that a process of the command sends to its process group (kill 0)
 # reaches the command once, as under sudo: dosr, in that group, gave it again; the command counts
 # the signals it gets through the wakeup fd of python, a byte for each
@@ -1759,6 +1778,7 @@ check "dosr dumps no core, through a file or a pipe, even with fs.suid_dumpable 
 check "a signal sent to dosr reaches a command that runs as root or as another user" signal_reaches_a_command_of_another_user
 check "the signals that the caller ignores stay ignored by the command" command_keeps_the_signals_that_the_caller_ignores
 check "a signal given to the command through a pty reaches its process group" signal_reaches_every_process_of_the_command
+check "without a terminal, dosr waits for the command without using the CPU" dosr_waits_without_a_terminal
 check "without a terminal, a signal of the command to its group reaches it once" signal_to_the_group_reaches_the_command_once
 check "a command that ignores SIGHUP goes on when the terminal is gone" command_that_ignores_sighup_survives_the_terminal
 check "the command gets the core limit of the caller" command_gets_the_core_limit_of_the_caller

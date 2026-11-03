@@ -9,9 +9,11 @@
 //!   otherwise suspends itself, so a command that asked for the terminal twice stopped.
 //! - the pty is given to the caller by default, see `crate::pty`.
 //! - an optional [`IoLogger`] logs the session.
-//! - without a pty, the signals are read in a plain loop with `try_wait`, not an event loop.
+//! - without a pty, the signals are read in a plain loop with `try_wait`, not an event loop: it
+//!   waits in `poll` on the signal pipe, whose frames bring `SIGCHLD` too.
 
 use std::io;
+use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::{Command, Stdio};
 
@@ -472,8 +474,28 @@ pub fn run_no_pty(
                     }
                 }
             }
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {}
+            // the pipe is empty: wait for the next frame, SIGCHLD included, instead of spinning
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => wait_readable(signal_stream)?,
             Err(e) => return Err(e),
+        }
+    }
+}
+
+/// Blocks until `fd` can be read, or has hung up.
+fn wait_readable(fd: &impl AsFd) -> io::Result<()> {
+    let mut pollfd = libc::pollfd {
+        fd: fd.as_fd().as_raw_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    loop {
+        // SAFETY: one valid pollfd, which poll writes revents into
+        if unsafe { libc::poll(&raw mut pollfd, 1, -1) } >= 0 {
+            return Ok(());
+        }
+        let e = io::Error::last_os_error();
+        if e.kind() != io::ErrorKind::Interrupted {
+            return Err(e);
         }
     }
 }
@@ -1114,6 +1136,35 @@ mod tests {
         for signal in [libc::SIGHUP, libc::SIGTERM] {
             assert_ne!(ignored & 1 << (signal - 1), 0, "{signal} in {ignored:x}");
         }
+    }
+
+    // without a pty, the runner waits for the signals of the command, SIGCHLD included: it read
+    // its empty pipe again at once, and used a whole CPU while the command ran
+    #[test]
+    fn run_no_pty_waits_without_using_the_cpu() {
+        let _guard = MUTEX.lock().unwrap();
+        let cpu_of_this_thread = || {
+            let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
+            // SAFETY: getrusage writes a whole rusage, which is only read when it succeeded
+            let usage = unsafe {
+                assert_eq!(libc::getrusage(libc::RUSAGE_THREAD, usage.as_mut_ptr()), 0);
+                usage.assume_init()
+            };
+            let micros = |t: libc::timeval| {
+                u64::try_from(t.tv_sec).unwrap() * 1_000_000 + u64::try_from(t.tv_usec).unwrap()
+            };
+            micros(usage.ru_utime) + micros(usage.ru_stime)
+        };
+        let mut command = Command::new("/usr/bin/sleep");
+        command.arg("1");
+        let before = cpu_of_this_thread();
+        let status = run_no_pty(command, Orchestrator::new(NOOP_STEPS)).expect("run command");
+        let used = cpu_of_this_thread() - before;
+        assert!(status.success());
+        assert!(
+            used < 200_000,
+            "{used} µs of CPU while the command slept 1 s"
+        );
     }
 
     // with a terminal, a failed setup of the pty stops before the command starts; without one,
