@@ -507,10 +507,17 @@ where
     Ok(res)
 }
 
-/// Reference every capabilities that lead to almost a direct privilege escalation
+/// Reference every capabilities that lead to almost a direct privilege escalation.
+///
+/// `CAP_BPF` counts with `CAP_PERFMON`: together they load the tracing programs of eBPF, which
+/// read the memory of the kernel and write the one of any process. `CAP_MAC_ADMIN` changes the
+/// policy of the LSM, and `CAP_MAC_OVERRIDE` bypasses it.
 #[must_use]
 pub fn capabilities_are_exploitable(caps: CapSet) -> bool {
     caps.has(Cap::SYS_ADMIN)
+        || (caps.has(Cap::BPF) && caps.has(Cap::PERFMON))
+        || caps.has(Cap::MAC_ADMIN)
+        || caps.has(Cap::MAC_OVERRIDE)
         || caps.has(Cap::SYS_PTRACE)
         || caps.has(Cap::SYS_MODULE)
         || caps.has(Cap::DAC_READ_SEARCH)
@@ -1331,6 +1338,20 @@ mod test {
         capset.clear();
         capset.add(Cap::MKNOD);
         assert!(capabilities_are_exploitable(capset));
+        capset.clear();
+        capset.add(Cap::MAC_ADMIN);
+        assert!(capabilities_are_exploitable(capset));
+        capset.clear();
+        capset.add(Cap::MAC_OVERRIDE);
+        assert!(capabilities_are_exploitable(capset));
+        capset.clear();
+        capset.add(Cap::BPF);
+        assert!(!capabilities_are_exploitable(capset));
+        capset.add(Cap::PERFMON);
+        assert!(capabilities_are_exploitable(capset));
+        capset.clear();
+        capset.add(Cap::PERFMON);
+        assert!(!capabilities_are_exploitable(capset));
         capset.clear();
         capset.add(Cap::WAKE_ALARM);
         assert!(!capabilities_are_exploitable(capset));
