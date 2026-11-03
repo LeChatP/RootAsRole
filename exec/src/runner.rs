@@ -89,6 +89,7 @@ impl io_logger_sealed::Sealed for SimpleFileLogger {
     }
 }
 
+#[allow(clippy::struct_excessive_bools)]
 pub struct ExecRunner {
     pipe: Pipe<UserTerm, PtyLeader>,
     signal_stream: &'static SignalStream,
@@ -101,6 +102,9 @@ pub struct ExecRunner {
     foreground: bool,
     term_raw: bool,
     preserve_oflag: bool,
+    // dosr gives the keys of the user's terminal to the command, when it is in the foreground: the
+    // input of the command is the terminal, or the command asked for it (SIGTTIN, SIGTTOU)
+    relay_input: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -133,7 +137,19 @@ impl Process for ExecRunner {
                     warn!("runner: the terminal is gone, its events are ignored");
                     self.pipe.ignore_events(registry);
                 } else if let Err(err) = self.pipe.on_left_event(e, registry) {
-                    debug!("runner: terminal event {e:?}: {err}");
+                    if matches!(
+                        err.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
+                    ) {
+                        debug!("runner: terminal event {e:?}: {err}");
+                    } else if e == PollEvent::Readable {
+                        // a read that fails fails again at each poll that finds it readable
+                        warn!("runner: cannot read the terminal, its input is ignored: {err}");
+                        self.relay_input = false;
+                        self.pipe.disable_input(registry);
+                    } else {
+                        debug!("runner: terminal event {e:?}: {err}");
+                    }
                 }
             }
             RunnerEvent::PipeRight(e) => {
@@ -183,7 +199,9 @@ impl ExecRunner {
             }
             libc::SIGCONT => {
                 debug!("runner: SIGCONT -> resume terminal");
-                let _ = self.resume_terminal();
+                if let Err(e) = self.resume_terminal(registry) {
+                    warn!("runner: cannot set the terminal up again: {e}");
+                }
             }
             libc::SIGWINCH => {
                 // Propagate resize
@@ -287,21 +305,14 @@ impl ExecRunner {
         if matches!(signal, libc::SIGTTOU | libc::SIGTTIN) {
             // The command wants the terminal: when dosr is in the foreground, the command is
             // resumed at once, whether the terminal was already raw or not (see the doc of the module).
-            if !self.foreground && self.check_foreground().is_err() {
+            // Otherwise, once dosr is in the foreground again.
+            self.relay_input = true;
+            if let Err(e) = self.resume_terminal(registry) {
                 // the user's terminal was revoked
+                warn!("runner: cannot give the terminal to the command: {e}");
                 return None;
             }
             if self.foreground {
-                if !self.term_raw
-                    && self
-                        .pipe
-                        .left_mut()
-                        .set_raw_mode(false, self.preserve_oflag)
-                        .is_ok()
-                {
-                    self.term_raw = true;
-                }
-                self.pipe.enable_input(registry);
                 return Some(true);
             }
         }
@@ -335,18 +346,33 @@ impl ExecRunner {
             return None;
         }
         // dosr was continued
-        if self.command_pid <= 0 || self.resume_after_suspend().is_err() {
+        if self.command_pid <= 0 || self.resume_terminal(registry).is_err() {
             return None;
         }
         Some(self.term_raw)
     }
 
-    /// Set the terminals up again when dosr is continued after a suspension.
-    fn resume_after_suspend(&mut self) -> io::Result<()> {
+    /// Set the terminals up again when dosr is continued, after a suspension or on `SIGCONT`, or
+    /// when the command asks for the terminal. In the foreground, the settings of the user go to
+    /// the pty, and the terminal is raw and read when dosr relays the keys: raw without being
+    /// read, it would take no key, not even ^C. In the background, the terminal is the one of the
+    /// shell or of another job, whose settings are not those of the user for the command (bash
+    /// at its prompt has neither echo nor canonical mode, and bash 5.2 brings a running job to
+    /// the foreground with fg without SIGCONT); and a read of it fails with `EIO` (dosr ignores
+    /// `SIGTTIN`), again at each poll that finds it readable, so it is not read.
+    fn resume_terminal(&mut self, registry: &mut EventRegistry<Self>) -> io::Result<()> {
         self.check_foreground()?;
-        // the user may have changed the terminal settings while dosr was stopped
-        self.pipe.left().copy_to(self.pipe.right())?;
-        if self.foreground {
+        if !self.foreground {
+            self.term_raw = false;
+            self.pipe.disable_input(registry);
+            return Ok(());
+        }
+        // the user may have changed the settings while dosr was stopped; raw, they are those of
+        // dosr, not of the user
+        if !self.term_raw {
+            self.pipe.left().copy_to(self.pipe.right())?;
+        }
+        if self.relay_input {
             if self
                 .pipe
                 .left_mut()
@@ -355,9 +381,7 @@ impl ExecRunner {
             {
                 self.term_raw = true;
             }
-        } else {
-            // in the background, dosr cannot use the terminal
-            self.term_raw = false;
+            self.pipe.enable_input(registry);
         }
         Ok(())
     }
@@ -366,19 +390,6 @@ impl ExecRunner {
     fn check_foreground(&mut self) -> io::Result<()> {
         let pgrp = self.pipe.left().as_tty()?.tcgetpgrp()?;
         self.foreground = pgrp == self.parent_pgrp;
-        Ok(())
-    }
-
-    fn resume_terminal(&mut self) -> io::Result<()> {
-        if self.term_raw && self.foreground {
-            debug!(
-                "runner: restoring raw mode (preserve_oflag={})",
-                self.preserve_oflag
-            );
-            self.pipe
-                .left_mut()
-                .set_raw_mode(false, self.preserve_oflag)?;
-        }
         Ok(())
     }
 
@@ -759,6 +770,7 @@ fn run_in_pty(
         foreground,
         term_raw,
         preserve_oflag,
+        relay_input: foreground && !exec_bg,
     };
 
     // HANDSHAKE 1: Send "Start" (Edge) to monitor to let it spawn the command

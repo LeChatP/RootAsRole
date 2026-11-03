@@ -1308,7 +1308,7 @@ keystrokes_go_to_the_end_of_the_pipeline() {
 # what the terminal got; shared by the checks of the terminal of a command run by dosr
 in_a_python_terminal() {
     TEST_USER=$TEST_USER python3 - "$@" <<'EOF'
-import os, pty, select, sys, time
+import os, pty, select, subprocess, sys, time
 
 argv, keys = sys.argv[1], sys.argv[2:]
 pid, fd = pty.fork()
@@ -1331,13 +1331,30 @@ def read_until(needle, timeout):
             out += data
 
 
+def ticks(pid):
+    fields = open(f"/proc/{pid}/stat").read().rsplit(")", 1)[1].split()
+    return int(fields[11]) + int(fields[12]), fields[1]
+
+
+def runner():
+    pids = subprocess.run(["pgrep", "-x", "dosr"], capture_output=True, text=True).stdout.split()
+    return next(p for p in pids if open(f"/proc/{ticks(p)[1]}/comm").read().strip() != "dosr")
+
+
 read_until(b"READY", 10)
 time.sleep(0.5)
-# each key, or "wait:<text>" to wait for a text before the next key
+cpu = []
+# each key, "wait:<text>" to wait for a text before the next key, or "cpu:<seconds>" to measure
+# the ticks of CPU that the runner of dosr uses meanwhile, printed as CPU=<ticks> at the end
 for key in keys:
     if key.startswith("wait:"):
         read_until(key[5:].encode(), 8)
         time.sleep(0.3)
+    elif key.startswith("cpu:"):
+        dosr = runner()
+        before = ticks(dosr)[0]
+        read_until(b"\x00", float(key[4:]))
+        cpu.append(ticks(dosr)[0] - before)
     else:
         os.write(fd, key.encode().decode("unicode_escape").encode("latin-1"))
         time.sleep(0.3)
@@ -1346,6 +1363,8 @@ os.waitpid(pid, 0)
 # what the terminal got after READY, before the OSC 3008 sequence that systemd 258 writes at the
 # end of a session
 sys.stdout.buffer.write(out.split(b"READY", 1)[-1].split(b"\x1b]3008", 1)[0])
+for ticks_used in cpu:
+    print(f"\nCPU={ticks_used}")
 EOF
 }
 
@@ -1391,6 +1410,24 @@ suspended_command_resumes_with_fg() {
         'wait:RUNNING' '\x1a' 'wait:Stopped' 'fg\r' 'hello\r' 'wait:GOT=' 'exit\r' | tr -d '\r')
     grep -q '^GOT=hello$' <<<"$got" || {
         echo "the terminal got: $got" >&2
+        return 1
+    }
+}
+
+# after ^Z and bg, dosr does not read the user's terminal, where a read fails with EIO: a line
+# typed for the job in the foreground made it read again at each poll, with a whole CPU; after
+# fg, the command reads what the user types (REA""DING, G""OT: the echo of the typed line is not
+# the output)
+background_dosr_leaves_the_terminal_alone() {
+    local got cpu
+    command -v python3 >/dev/null || return 77
+    got=$(in_a_python_terminal "PS1='READY\$ ' bash --norc --noprofile -i" \
+        "dosr -r e2e -t shell /usr/bin/sh -c 'echo RUN\"\"NING; sleep 6; echo REA\"\"DING; read line; echo G\"\"OT=\$line'\\r" \
+        'wait:RUNNING' '\x1a' 'wait:Stopped' 'bg\r' 'sleep 3\r' 'echo TYPED\r' 'cpu:2' 'fg\r' \
+        'wait:READING' 'hello\r' 'wait:GOT=hello' 'exit\r' | tr -d '\r' | sed 's/\x1b\[?2004[hl]//g')
+    cpu=$(sed -n 's/^CPU=//p' <<<"$got")
+    [ "${cpu:-999}" -le 20 ] && grep -q 'Stopped' <<<"$got" && grep -q '^GOT=hello$' <<<"$got" || {
+        echo "dosr used ${cpu:-?} ticks of CPU in 2 s; the terminal got: $got" >&2
         return 1
     }
 }
@@ -1773,6 +1810,7 @@ check "with its output into a pipe, the keystrokes go to the next program" keyst
 check "a command in raw mode gets Enter, ^S, ^Q, ^C, ^Z and ^\\ as they are typed" raw_command_gets_the_keys_as_typed
 check "the output of a command reaches the terminal as its pty sets it, raw or not" command_output_reaches_the_terminal_as_written
 check "^Z stops a command run in a pty with dosr, and fg resumes it" suspended_command_resumes_with_fg
+check "after ^Z and bg, dosr leaves the terminal alone, and the command reads it after fg" background_dosr_leaves_the_terminal_alone
 check "the password prompt gives the echo back on ^Z and ^C, and shows again after fg" prompt_gives_the_echo_back_on_signals
 check "dosr dumps no core, through a file or a pipe, even with fs.suid_dumpable = 1" dosr_dumps_no_core
 check "a signal sent to dosr reaches a command that runs as root or as another user" signal_reaches_a_command_of_another_user
