@@ -171,8 +171,11 @@ impl<T: Process> EventRegistry<T> {
             return Ok(ids);
         }
 
+        // nfds_t is 32 bits on i386; more descriptors than that is the EINVAL of poll
+        let nfds = libc::nfds_t::try_from(fds.len())
+            .map_err(|_| io::Error::from_raw_os_error(libc::EINVAL))?;
         // SAFETY: C compatible layout
-        let ret = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as _, -1) };
+        let ret = unsafe { libc::poll(fds.as_mut_ptr(), nfds, -1) };
         if ret < 0 {
             return Err(io::Error::last_os_error());
         }

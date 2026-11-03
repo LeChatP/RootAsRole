@@ -91,10 +91,10 @@ struct Cookiev2 {
     auth_uid: uid_t,
 }
 
+/// Through `Duration`: `tv_sec` is a `time_t`, 32 bits on i386.
 fn boottime() -> Option<i64> {
-    clock_gettime(ClockId::CLOCK_BOOTTIME)
-        .ok()
-        .map(|t| t.tv_sec())
+    let since_boot = std::time::Duration::from(clock_gettime(ClockId::CLOCK_BOOTTIME).ok()?);
+    i64::try_from(since_boot.as_secs()).ok()
 }
 
 #[cfg(not(test))]
