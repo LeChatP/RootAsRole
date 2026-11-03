@@ -333,11 +333,11 @@ impl ExecRunner {
                 .inspect_err(|e| warn!("runner: cannot set the default action of {signal}: {e}"))
                 .ok()
         };
-        let pgrp = self.parent_pgrp.inner();
-        // SAFETY: getpid, kill and killpg do not access memory
-        let suspended = unsafe {
-            (pgrp == libc::getpid() || libc::kill(pgrp, 0) == 0) && libc::killpg(pgrp, signal) == 0
-        };
+        // dosr is in the group, which therefore exists: a test of its leader (kill, as sudo-rs
+        // does) found no group in a pipeline whose first command had ended (true | dosr cmd), and
+        // terminated the command on ^Z
+        // SAFETY: killpg does not access memory
+        let suspended = unsafe { libc::killpg(self.parent_pgrp.inner(), signal) == 0 };
         drop(default_action);
 
         if !suspended {

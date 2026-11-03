@@ -1432,6 +1432,27 @@ background_dosr_leaves_the_terminal_alone() {
     }
 }
 
+# with its input from a pipe, ^Z stops the command with dosr: dosr tested the leader of its group,
+# here true, which had ended, and terminated the command; and after fg, dosr does not make the
+# terminal raw, which it does not read: ^C went nowhere
+piped_command_gets_ctrl_c_after_fg() {
+    local got
+    command -v python3 >/dev/null || return 77
+    got=$(in_a_python_terminal "PS1='READY\$ ' bash --norc --noprofile -i" \
+        "true | dosr -r e2e -t shell /usr/bin/sh -c 'echo RUN\"\"NING; sleep 33'\\r" \
+        'wait:RUNNING' '\x1a' 'wait:Stopped' 'fg\r' '\x03' 'wait:^C' "echo ST\"\"ATUS=\$?\\r" \
+        'wait:STATUS=' 'exit\r' | tr -d '\r' | sed 's/\x1b\[?2004[hl]//g')
+    if pgrep -f '^sleep 33$' >/dev/null; then
+        echo "the command is left: $(pgrep -af '^sleep 33$')" >&2
+        pkill -f '^sleep 33$'
+        return 1
+    fi
+    grep -q 'Stopped' <<<"$got" && ! grep -q 'Killed' <<<"$got" && grep -q '^STATUS=130$' <<<"$got" || {
+        echo "the terminal got: $got" >&2
+        return 1
+    }
+}
+
 # dosr dumps no core while it holds the policy and the PAM handle, whatever fs.suid_dumpable and
 # kernel.core_pattern say: killed by SIGQUIT at its prompt (with the effective uid of root),
 # it leaves no core, through a file (RLIMIT_CORE) or a pipe (not dumpable), even with
@@ -1811,6 +1832,7 @@ check "a command in raw mode gets Enter, ^S, ^Q, ^C, ^Z and ^\\ as they are type
 check "the output of a command reaches the terminal as its pty sets it, raw or not" command_output_reaches_the_terminal_as_written
 check "^Z stops a command run in a pty with dosr, and fg resumes it" suspended_command_resumes_with_fg
 check "after ^Z and bg, dosr leaves the terminal alone, and the command reads it after fg" background_dosr_leaves_the_terminal_alone
+check "with its input from a pipe, a command gets ^C after ^Z and fg" piped_command_gets_ctrl_c_after_fg
 check "the password prompt gives the echo back on ^Z and ^C, and shows again after fg" prompt_gives_the_echo_back_on_signals
 check "dosr dumps no core, through a file or a pipe, even with fs.suid_dumpable = 1" dosr_dumps_no_core
 check "a signal sent to dosr reaches a command that runs as root or as another user" signal_reaches_a_command_of_another_user
