@@ -396,13 +396,14 @@ where
     let uid = metadata.uid();
     let effective_uid = nix::unistd::Uid::effective();
 
-    // Changing the flags of a file requires to own it or CAP_FOWNER, its group does not matter
-    let caps = if effective_uid == nix::unistd::Uid::from_raw(uid) {
-        vec![Cap::LINUX_IMMUTABLE]
+    // Changing the flags of a file requires to own it or CAP_FOWNER, its group does not matter;
+    // the kernel makes no DAC check on the descriptor (vfs_fileattr_set)
+    let caps: &[Cap] = if effective_uid == nix::unistd::Uid::from_raw(uid) {
+        &[Cap::LINUX_IMMUTABLE]
     } else {
-        vec![Cap::LINUX_IMMUTABLE, Cap::FOWNER, Cap::DAC_OVERRIDE]
+        &[Cap::LINUX_IMMUTABLE, Cap::FOWNER]
     };
-    with_privileges(&caps, f)
+    with_privileges(caps, f)
 }
 
 pub(crate) fn is_immutable(file: &File) -> std::io::Result<bool> {
@@ -1434,6 +1435,55 @@ mod test {
         assert!(panicked.is_err());
         assert_eq!(effective(), found);
         drop_effective().unwrap();
+    }
+
+    // The immutable flag of a file of another user takes CAP_FOWNER and CAP_LINUX_IMMUTABLE, no
+    // DAC capability (as root, under `cargo test-root`, on a file system with the flag)
+    #[test]
+    fn test_immutable_flag_of_another_owner() {
+        drop_effective().unwrap();
+        let permitted = CapState::get_current().unwrap().permitted;
+        if ![Cap::CHOWN, Cap::FOWNER, Cap::LINUX_IMMUTABLE]
+            .iter()
+            .all(|cap| permitted.has(*cap))
+        {
+            eprintln!("Skipping test, requires CAP_CHOWN, CAP_FOWNER and CAP_LINUX_IMMUTABLE");
+            return;
+        }
+        let path = std::env::temp_dir().join(format!(
+            "rar_test_immutable_other_owner_{}",
+            std::process::id()
+        ));
+        let mut file = File::create(&path).unwrap();
+        let _defer = defer(|| {
+            if let Ok(mut file) = File::open(&path)
+                && is_immutable(&file).unwrap_or(false)
+            {
+                let _ = unlock_immutable(&mut file);
+            }
+            let _ = with_privileges(&[Cap::FOWNER], || fs::remove_file(&path));
+        });
+        let other = nix::unistd::Uid::effective().as_raw() ^ 1;
+        with_privileges(&[Cap::CHOWN], || {
+            std::os::unix::fs::fchown(&file, Some(other), None)
+        })
+        .unwrap();
+
+        let mut flags = 0;
+        // SAFETY: FS_IOC_GETFLAGS writes an int through the pointer, `flags` is a valid and
+        // writable u32
+        assert!(unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_GETFLAGS, &mut flags) } == 0);
+        let raised =
+            immutable_required_privileges(&file, || Ok(CapState::get_current().unwrap().effective))
+                .unwrap();
+        assert_eq!(
+            raised,
+            CapSet::from_iter([Cap::LINUX_IMMUTABLE, Cap::FOWNER])
+        );
+        lock_immutable(&mut file, flags | FS_IMMUTABLE_FL).unwrap();
+        assert!(is_immutable(&file).unwrap());
+        unlock_immutable(&mut file).unwrap();
+        assert!(!is_immutable(&file).unwrap());
     }
 
     #[test]
