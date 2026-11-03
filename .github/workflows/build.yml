@@ -32,6 +32,12 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y clang pkg-config libpam0g-dev libseccomp-dev pandoc
+    # time_t and nfds_t are 32 bits on i386, where Debian builds the package too; check does not
+    # link, so the i386 libraries are not needed
+    - name: Check the i386 build
+      run: |
+        rustup target add i686-unknown-linux-gnu
+        cargo check --target i686-unknown-linux-gnu --workspace --all-targets --all-features
     - name: Install RootAsRole
       run: cargo xtask install -bp sudo
     - name: print config
