@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 
 use rootasrole_core::{
     Cred,
-    database::options::{SAuthentication, STimeout, TimestampType},
+    database::options::{STimeout, TimestampType},
     util::with_privileges,
 };
 
@@ -91,10 +91,10 @@ struct Cookiev2 {
     auth_uid: uid_t,
 }
 
+/// Through `Duration`: `tv_sec` is a `time_t`, 32 bits on i386.
 fn boottime() -> Option<i64> {
-    clock_gettime(ClockId::CLOCK_BOOTTIME)
-        .ok()
-        .map(|t| t.tv_sec())
+    let since_boot = std::time::Duration::from(clock_gettime(ClockId::CLOCK_BOOTTIME).ok()?);
+    i64::try_from(since_boot.as_secs()).ok()
 }
 
 #[cfg(not(test))]
@@ -147,6 +147,8 @@ where
         let prev_uid = setfsuid(owner);
         let prev_gid = setfsgid(group);
         // setfsuid and setfsgid do not report errors, they return the previous value
+        // the change of the filesystem ids made dosr dumpable as fs.suid_dumpable says
+        crate::coredump::keep_undumpable();
         let res = if setfsuid(owner) == owner && setfsgid(group) == group {
             f()
         } else {
@@ -161,6 +163,7 @@ where
             error!("Failed to restore filesystem ids, aborting");
             std::process::abort();
         }
+        crate::coredump::keep_undumpable();
         res
     })
 }
@@ -359,11 +362,22 @@ fn find_valid_cookie(
     res
 }
 
-/// Check if the credentials are valid
-/// @param from: the credentials of the user that want to execute a command
-/// @param ``cred_asked``: the credentials of the user that is asked to execute a command
-/// @param ``max_offset``: the maximum offset between the current time and the time of the credentials, including the type of the offset
-/// @return true if the credentials are valid, false otherwise
+/// The use of a cookie: counted, and its time renewed.
+fn use_cookie(cookie: &mut CookieVersion) {
+    match cookie {
+        CookieVersion::V2(cookie) => {
+            cookie.usage = cookie.usage.saturating_add(1);
+            cookie.timestamp = boottime().unwrap_or(cookie.timestamp);
+            debug!("Using cookie: {cookie:?}");
+        }
+    }
+}
+
+/// Whether a cookie of `from` spares the password. The cookie found is used at once, under the
+/// lock of the cookie file (its use counted, its time renewed), like `touch` in sudo-rs
+/// (`src/sudo/pipeline.rs`, `determine_auth_status`): two runs cannot both use a cookie that
+/// serves once, and nothing is left to do with the cookie once PAM is done. When its use cannot
+/// be written, the password is asked.
 pub fn is_valid(from: &Cred, cred_asked: &Cred, constraint: &STimeout) -> bool {
     let mut file = match CookieFile::open(from) {
         Ok(file) => file,
@@ -373,29 +387,32 @@ pub fn is_valid(from: &Cred, cred_asked: &Cred, constraint: &STimeout) -> bool {
         }
     };
     let mut cookies = file.read();
-    let res = find_valid_cookie(&mut cookies, from, cred_asked, constraint, |_c| {
-        debug!("Found valid cookie ");
-    });
-    if let Err(e) = file.write(&cookies) {
-        debug!("Failed to save cookies {e:?}");
+    let res = find_valid_cookie(&mut cookies, from, cred_asked, constraint, use_cookie);
+    match file.write(&cookies) {
+        Ok(()) => res.is_some(),
+        Err(e) => {
+            error!("Failed to record the use of the timestamp cookie, the password is asked: {e}");
+            false
+        }
     }
-    res.is_some()
 }
 
-/// Keep the cookie of `user` once its session is open: an authentication, or the cookie that
-/// spared it, creates or extends it. A task that skips the authentication proves nothing about
-/// who is at the terminal: its cookie would spare the password to a later task that requires it.
+/// Keep a cookie for `user` after a password checked by PAM: it is created, or renewed when
+/// another run made one meanwhile. A run spared by a cookie used it already ([`is_valid`]) and
+/// records nothing more: when that cookie expired meanwhile, recording would make a new one that
+/// no password made, whatever `max_usage` says. A task that skips the authentication checks no
+/// password either: its cookie would spare the password to a later task that requires it.
 /// sudo-rs records an authentication only after it (`src/sudo/pipeline.rs`,
 /// `auth_and_update_record_file`).
 ///
 /// # Errors
 /// The errors of [`update_cookie`].
 pub fn record_authentication(
-    authentication: SAuthentication,
+    password_checked: bool,
     user: &Cred,
     constraint: &STimeout,
 ) -> Result<(), Box<dyn Error>> {
-    if authentication.is_skip() {
+    if !password_checked {
         return Ok(());
     }
     update_cookie(user, user, constraint)
@@ -409,19 +426,7 @@ pub fn update_cookie(
 ) -> Result<(), Box<dyn Error>> {
     let mut file = CookieFile::open(from)?;
     let mut cookies = file.read();
-    let res = find_valid_cookie(
-        &mut cookies,
-        from,
-        cred_asked,
-        constraint,
-        |cookie| match cookie {
-            CookieVersion::V2(cookie) => {
-                cookie.usage += 1;
-                cookie.timestamp = boottime().unwrap_or(cookie.timestamp);
-                debug!("Updating cookie: {cookie:?}");
-            }
-        },
-    );
+    let res = find_valid_cookie(&mut cookies, from, cred_asked, constraint, use_cookie);
     if res.is_none() {
         let ttype = constraint.type_field.unwrap_or_default();
         let (Some(now), Some(parent_record)) = (boottime(), ParentRecord::new(ttype, from)) else {
@@ -505,8 +510,8 @@ mod test {
         };
         assert!(!is_valid(&cred, &cred, &constraint));
         assert!(update_cookie(&cred, &cred, &constraint).is_ok());
+        // the check uses the cookie, which serves once
         assert!(is_valid(&cred, &cred, &constraint));
-        assert!(update_cookie(&cred, &cred, &constraint).is_ok());
         assert!(!is_valid(&cred, &cred, &constraint));
         clear_cookies(&cred).unwrap();
     }
@@ -530,14 +535,68 @@ mod test {
             max_usage: Some(2),
             extra_fields: Map::default(),
         };
-        record_authentication(SAuthentication::Skip, &cred, &constraint).unwrap();
+        record_authentication(false, &cred, &constraint).unwrap();
         assert!(!is_valid(&cred, &cred, &constraint));
-        record_authentication(SAuthentication::Perform, &cred, &constraint).unwrap();
+        record_authentication(true, &cred, &constraint).unwrap();
         assert!(is_valid(&cred, &cred, &constraint));
-        // a skipped authentication does not use the cookie either
-        record_authentication(SAuthentication::Skip, &cred, &constraint).unwrap();
-        record_authentication(SAuthentication::Perform, &cred, &constraint).unwrap();
+        // a skipped authentication does not use the cookie either: it serves a second time
+        record_authentication(false, &cred, &constraint).unwrap();
         assert!(is_valid(&cred, &cred, &constraint));
+        assert!(!is_valid(&cred, &cred, &constraint));
+        clear_cookies(&cred).unwrap();
+    }
+
+    fn served_once(secs: i64) -> STimeout {
+        STimeout {
+            type_field: Some(TimestampType::PPID),
+            duration: Some(SignedDuration::from_secs(secs)),
+            max_usage: Some(1),
+            extra_fields: Map::default(),
+        }
+    }
+
+    fn caller() -> Cred {
+        Cred {
+            user: User::from_uid(0.into()).unwrap().unwrap(),
+            curdir: "".into(),
+            groups: vec![],
+            tty: None,
+            ppid: Pid::parent(),
+        }
+    }
+
+    // two runs at once (no terminal lock with -S or without a terminal): each one checks the
+    // cookie before the other one counted its use; a cookie that serves once spares one of them
+    #[test]
+    fn test_a_cookie_that_serves_once_spares_one_run() {
+        let _guard = MUTEX.lock().unwrap();
+        setup();
+        let cred = caller();
+        clear_cookies(&cred).unwrap();
+        record_authentication(true, &cred, &served_once(10)).unwrap();
+        let first = is_valid(&cred, &cred, &served_once(10));
+        let second = is_valid(&cred, &cred, &served_once(10));
+        assert_eq!((first, second), (true, false));
+        clear_cookies(&cred).unwrap();
+    }
+
+    // the cookie that spared the password expires before the run is done: the spared run records
+    // nothing, so no cookie is made without a password (times are whole seconds)
+    #[test]
+    fn test_a_spared_run_makes_no_cookie() {
+        let _guard = MUTEX.lock().unwrap();
+        setup();
+        let cred = caller();
+        clear_cookies(&cred).unwrap();
+        record_authentication(true, &cred, &served_once(1)).unwrap();
+        let start = boottime().unwrap();
+        assert!(is_valid(&cred, &cred, &served_once(1)));
+        while boottime().unwrap() == start {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        // as authenticate() does once PAM is done, the password spared
+        record_authentication(false, &cred, &served_once(1)).unwrap();
+        assert!(!is_valid(&cred, &cred, &served_once(1)));
         clear_cookies(&cred).unwrap();
     }
 

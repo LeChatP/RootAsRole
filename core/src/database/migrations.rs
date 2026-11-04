@@ -7,7 +7,7 @@ use std::collections::HashSet;
 
 use log::{debug, info};
 use semver::Version;
-use serde_json::Value;
+use serde_json::{Map, Value, json};
 
 use crate::{
     PACKAGE_VERSION,
@@ -85,7 +85,142 @@ pub const DOCUMENT_MIGRATIONS: &[Migration<Value>] = &[
             Ok(())
         },
     },
+    Migration {
+        from: || Version::new(4, 2, 0),
+        to: || Version::new(4, 3, 0),
+        up: unchanged,
+        down: |_, document| {
+            long_keys_of_4_2(document);
+            Ok(())
+        },
+    },
 ];
+
+/// The keys that CBOR writes with one character since 4.3.0, with the names that 4.2.0 reads.
+const STORAGE_KEYS: &[(&str, &str)] = &[("m", "method"), ("s", "settings"), ("l", "ldap")];
+const STORAGE_SETTINGS_KEYS: &[(&str, &str)] = &[("i", "immutable"), ("p", "path")];
+const OPTION_KEYS: &[(&str, &str)] = &[
+    ("p", "path"),
+    ("e", "env"),
+    ("r", "root"),
+    ("b", "bounding"),
+    ("a", "authentication"),
+    ("i", "execinfo"),
+    ("w", "workdir"),
+    ("t", "timeout"),
+    ("k", "password"),
+    ("y", "tty"),
+    ("u", "umask"),
+];
+/// The fields of each option, once the option has its name.
+const OPTION_FIELD_KEYS: &[(&str, &[(&str, &str)])] = &[
+    ("path", &[("d", "default"), ("a", "add"), ("s", "sub")]),
+    (
+        "env",
+        &[
+            ("d", "default"),
+            ("o", "override_behavior"),
+            ("v", "set"),
+            ("k", "keep"),
+            ("c", "check"),
+            ("s", "delete"),
+        ],
+    ),
+    (
+        "workdir",
+        &[
+            ("d", "default"),
+            ("f", "fallback"),
+            ("a", "add"),
+            ("s", "sub"),
+        ],
+    ),
+    (
+        "timeout",
+        &[("t", "type"), ("d", "duration"), ("m", "max_usage")],
+    ),
+    ("password", &[("t", "tries"), ("d", "delay")]),
+    ("tty", &[("o", "owner")]),
+];
+
+/// Gives the keys `short` of `map` their name `long`, unless the name is there too.
+fn rename_keys(map: &mut Map<String, Value>, keys: &[(&str, &str)]) {
+    for (short, long) in keys {
+        if !map.contains_key(*long)
+            && let Some(value) = map.remove(*short)
+        {
+            map.insert((*long).to_string(), value);
+        }
+    }
+}
+
+/// The options of `level`, and the fields of each option, under their names.
+fn long_option_keys(level: &mut Map<String, Value>) {
+    for key in ["options", "o"] {
+        let Some(Value::Object(options)) = level.get_mut(key) else {
+            continue;
+        };
+        rename_keys(options, OPTION_KEYS);
+        for (name, keys) in OPTION_FIELD_KEYS {
+            if let Some(Value::Object(option)) = options.get_mut(*name) {
+                rename_keys(option, keys);
+            }
+        }
+    }
+}
+
+/// `{"u": user}` or `{"g": groups}` alone, in the typed form that every 4.x version reads.
+fn typed_actor(actor: &mut Value) {
+    let Value::Object(map) = actor else {
+        return;
+    };
+    if map.len() != 1 {
+        return;
+    }
+    if let Some(user) = map.remove("u") {
+        *actor = json!({"type": "user", "id": user});
+    } else if let Some(groups) = map.remove("g") {
+        *actor = json!({"type": "group", "groups": groups});
+    }
+}
+
+/// 4.2.0 reads the storage settings, the options and the actors only under their names, which
+/// CBOR writes with one character since 4.3.0. The other short keys are older, and 4.2.0 reads
+/// them. The levels are walked one by one: `o` is also the `from` of a setgid selector.
+fn long_keys_of_4_2(document: &mut Value) {
+    let Value::Object(document) = document else {
+        return;
+    };
+    rename_keys(document, &[("s", "storage")]);
+    if let Some(Value::Object(storage)) = document.get_mut("storage") {
+        rename_keys(storage, STORAGE_KEYS);
+        if let Some(Value::Object(settings)) = storage.get_mut("settings") {
+            rename_keys(settings, STORAGE_SETTINGS_KEYS);
+        }
+    }
+    long_option_keys(document);
+    for roles in ["roles", "r"] {
+        let Some(Value::Array(roles)) = document.get_mut(roles) else {
+            continue;
+        };
+        for role in roles.iter_mut().filter_map(Value::as_object_mut) {
+            long_option_keys(role);
+            for actors in ["actors", "a"] {
+                if let Some(Value::Array(actors)) = role.get_mut(actors) {
+                    actors.iter_mut().for_each(typed_actor);
+                }
+            }
+            for tasks in ["tasks", "t"] {
+                if let Some(Value::Array(tasks)) = role.get_mut(tasks) {
+                    tasks
+                        .iter_mut()
+                        .filter_map(Value::as_object_mut)
+                        .for_each(long_option_keys);
+                }
+            }
+        }
+    }
+}
 
 /// `LC_.*` -> `LC_*`: the simple regexes used before 4.1.0 become wildcards.
 /// Anything else is left unchanged, and rejected with an explicit error when parsed.
@@ -182,11 +317,16 @@ fn rewrite_path_behaviors(document: &mut Value, rewrite: fn(&str) -> Option<&'st
 }
 
 /// 4.1.0 has neither the `password` nor the `tty` option: they are removed from the options of
-/// every level. Without `tty`, 4.1.0 leaves the terminal to the caller, as `"owner": "caller"`.
+/// every level, whatever their key (the CBOR format writes `o`). Without `tty`, 4.1.0 leaves the
+/// terminal to the caller, as `"owner": "caller"`.
 fn remove_options_of_4_2(document: &mut Value) {
     match document {
         Value::Object(map) => {
-            if let Some(Value::Object(options)) = map.get_mut("options") {
+            for key in ["options", "o"] {
+                // `o` is also the `from` of a setgid selector, a string
+                let Some(Value::Object(options)) = map.get_mut(key) else {
+                    continue;
+                };
                 for name in ["password", "tty"] {
                     if options.remove(name).is_some() {
                         info!("Removing the {name} option, unknown before 4.2.0");
@@ -403,6 +543,19 @@ fn describe_changes(before: &Value, after: &Value, pointer: &str, changes: &mut 
 /// # Errors
 /// Returns an error if a migration fails or if there is no migration path to the current version.
 pub fn migrate_document(document: &mut Value) -> Result<Option<DocumentMigration>, MigrationError> {
+    migrate_document_to(document, &PACKAGE_VERSION)
+}
+
+/// Migrate a raw policy document to the version `to`, newer or older than its own.
+///
+/// A document without a parsable version, or already at `to`, is left unchanged. Returns what the
+/// migration changed, if the document was migrated.
+/// # Errors
+/// Returns an error if a migration fails or if there is no migration path to `to`.
+pub fn migrate_document_to(
+    document: &mut Value,
+    to: &Version,
+) -> Result<Option<DocumentMigration>, MigrationError> {
     let Some(version) = document
         .get("version")
         .or_else(|| document.get("v"))
@@ -411,27 +564,105 @@ pub fn migrate_document(document: &mut Value) -> Result<Option<DocumentMigration
     else {
         return Ok(None);
     };
-    if version == PACKAGE_VERSION {
+    if version == *to {
         return Ok(None);
     }
     let before = document.clone();
-    if !Migration::migrate(&version, document, DOCUMENT_MIGRATIONS)? {
+    if !Migration::migrate_from(&version, to, document, DOCUMENT_MIGRATIONS)? {
         return Ok(None);
     }
     let mut changes = Vec::new();
     describe_changes(&before, document, "", &mut changes);
     if let Value::Object(map) = document {
-        debug!("Policy document migrated from {version} to {PACKAGE_VERSION}");
+        debug!("Policy document migrated from {version} to {to}");
         map.remove("v");
-        map.insert(
-            "version".to_string(),
-            Value::String(PACKAGE_VERSION.to_string()),
-        );
+        map.insert("version".to_string(), Value::String(to.to_string()));
     }
     Ok(Some(DocumentMigration {
         from: version,
         changes,
     }))
+}
+
+/// The version `text`, when chsr can write the policy for it: the current version, or an older
+/// one that has a migration path. A newer version knows what its policy means, not this one.
+/// # Errors
+/// Returns why the policy cannot be written for `text`.
+pub fn writable_version(text: &str) -> Result<Version, String> {
+    let to = Version::parse(text).map_err(|e| format!("\"{}\": {e}", text.escape_debug()))?;
+    if to > PACKAGE_VERSION {
+        return Err(format!(
+            "{to} is newer than {PACKAGE_VERSION}: only RootAsRole {to} writes its policy"
+        ));
+    }
+    // the down migrations change nothing in an empty document: only the path is checked
+    Migration::migrate_from(&PACKAGE_VERSION, &to, &mut Value::Null, DOCUMENT_MIGRATIONS)
+        .map_err(|e| e.to_string())?;
+    Ok(to)
+}
+
+/// The oldest version whose documents the current version reads as they are.
+///
+/// From it to the current version, every migration leaves the documents unchanged on the way
+/// up, and the current version gives them the same meaning, or allows less. A
+/// migration that rewrites the documents on the way up raises it to its `to`.
+pub const UNCHANGED_SINCE: Version = Version::new(4, 1, 0);
+
+/// Why the current version does not read a policy document as it is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UnreadableVersion {
+    /// The document has no version.
+    Missing,
+    /// The version of the document is not a version, escaped for display.
+    Invalid(String),
+    /// Written before [`UNCHANGED_SINCE`]: the same words meant something else.
+    Older(Version),
+    /// Written by a newer version, whose meaning this version does not know.
+    Newer(Version),
+}
+
+impl std::fmt::Display for UnreadableVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Missing => write!(
+                f,
+                "the policy has no version: write the one that it is written for, like \"version\": \"{PACKAGE_VERSION}\""
+            ),
+            Self::Invalid(version) => write!(f, "the policy version \"{version}\" is not valid"),
+            Self::Older(version) => write!(
+                f,
+                "the policy was written by RootAsRole {version}, whose words meant something else: upgrade it with chsr upgrade"
+            ),
+            Self::Newer(version) => write!(
+                f,
+                "the policy was written by RootAsRole {version}, newer than {PACKAGE_VERSION}: write it for {PACKAGE_VERSION} with chsr upgrade --to {PACKAGE_VERSION} of that version"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for UnreadableVersion {}
+
+/// Whether the current version reads a policy document of `version` as it is, without a
+/// migration.
+///
+/// These versions go from [`UNCHANGED_SINCE`] to the current version. dosr reads the documents
+/// as they are, so that it refuses the other ones instead of giving them another meaning.
+/// # Errors
+/// Returns why the document is not read as it is.
+pub fn read_as_is(version: Option<&str>) -> Result<(), UnreadableVersion> {
+    let text = version.ok_or(UnreadableVersion::Missing)?;
+    let mut version = Version::parse(text)
+        .map_err(|_| UnreadableVersion::Invalid(text.escape_debug().to_string()))?;
+    // the build metadata does not change the format
+    version.build = semver::BuildMetadata::EMPTY;
+    if version < UNCHANGED_SINCE {
+        Err(UnreadableVersion::Older(version))
+    } else if version > PACKAGE_VERSION {
+        Err(UnreadableVersion::Newer(version))
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -518,6 +749,70 @@ mod tests {
             migrate_document(&mut document),
             Err(MigrationError::NoMigrationPath(_, _))
         ));
+    }
+
+    #[test]
+    fn test_read_as_is() {
+        let current = PACKAGE_VERSION.to_string();
+        for version in ["4.1.0", current.as_str(), &format!("{current}+debian")] {
+            assert_eq!(read_as_is(Some(version)), Ok(()), "{version}");
+        }
+        assert_eq!(read_as_is(None), Err(UnreadableVersion::Missing));
+        // what to write, for a policy written by hand
+        assert!(
+            UnreadableVersion::Missing
+                .to_string()
+                .ends_with(&format!(r#""version": "{PACKAGE_VERSION}""#))
+        );
+        assert_eq!(
+            read_as_is(Some("4.1\n")),
+            Err(UnreadableVersion::Invalid("4.1\\n".into()))
+        );
+        for version in ["3.2.0", "4.0.0", "4.0.3", "4.1.0-rc.1"] {
+            assert_eq!(
+                read_as_is(Some(version)),
+                Err(UnreadableVersion::Older(Version::parse(version).unwrap())),
+                "{version}"
+            );
+        }
+        let newer = Version::new(PACKAGE_VERSION.major, PACKAGE_VERSION.minor + 1, 0);
+        assert_eq!(
+            read_as_is(Some(&newer.to_string())),
+            Err(UnreadableVersion::Newer(newer))
+        );
+    }
+
+    // the documents that dosr reads as they are, from UNCHANGED_SINCE, are the ones that no
+    // migration rewrites on the way up: a migration that rewrites a document must raise it
+    #[test]
+    fn test_no_migration_rewrites_a_document_since_unchanged_since() {
+        // every rewrite of the migrations up to now
+        let document = json!({
+            "options": {"env": {"check": ["LC_.*"], "delete": DELETE_LIST_4_0_3}, "path": {"default": "keepsafe"}},
+            "roles": [{
+                "name": "r",
+                "tasks": [{
+                    "name": "t",
+                    "options": {"env": {"default": "delete"}},
+                    "commands": ["/usr/bin/systemctl ^start|stop$"]
+                }]
+            }]
+        });
+        for migration in DOCUMENT_MIGRATIONS {
+            let mut migrated = document.clone();
+            (migration.up)(migration, &mut migrated).unwrap();
+            if migration.from() >= UNCHANGED_SINCE {
+                assert_eq!(
+                    migrated,
+                    document,
+                    "the migration from {} to {} rewrites the document: raise UNCHANGED_SINCE",
+                    migration.from(),
+                    migration.to()
+                );
+            } else if migration.to() == UNCHANGED_SINCE {
+                assert_ne!(migrated, document, "the document covers the rewrites");
+            }
+        }
     }
 
     #[test]
@@ -749,6 +1044,85 @@ mod tests {
         );
     }
 
+    // the CBOR format writes `o` for the options of the policy, of a role and of a task, and for
+    // the `from` of a setgid selector: the downgrade kept the options of 4.2 in a CBOR policy
+    #[test]
+    fn test_options_of_4_2_are_removed_down_with_the_short_keys() {
+        let mut document = json!({
+            "o": {"password": {"tries": 5}, "umask": "022"},
+            "r": [{
+                "n": "r",
+                "o": {"tty": {"owner": "target"}},
+                "t": [{"n": "t", "o": {"password": {"tries": 1}}, "i": {"g": {"d": "none", "a": ["adm"], "o": "caller"}}}]
+            }]
+        });
+        Migration::migrate_from(
+            &PACKAGE_VERSION,
+            &Version::new(4, 1, 0),
+            &mut document,
+            DOCUMENT_MIGRATIONS,
+        )
+        .unwrap();
+        assert_eq!(document["o"], json!({"umask": "022"}));
+        assert_eq!(document["r"][0]["o"], json!({}));
+        assert_eq!(document["r"][0]["t"][0]["o"], json!({}));
+        assert_eq!(
+            document["r"][0]["t"][0]["i"],
+            json!({"g": {"d": "none", "a": ["adm"]}})
+        );
+    }
+
+    #[test]
+    fn test_migrate_document_to_an_older_version() {
+        let mut document = json!({
+            "version": PACKAGE_VERSION.to_string(),
+            "options": {"password": {"tries": 5}},
+            "roles": []
+        });
+        let migration = migrate_document_to(&mut document, &Version::new(4, 1, 0))
+            .unwrap()
+            .unwrap();
+        assert_eq!(migration.from, PACKAGE_VERSION);
+        // the version is not one of the changes, like on the way up
+        assert_eq!(
+            migration.changes,
+            [r#"/options/password: {"tries":5} removed"#]
+        );
+        assert_eq!(document["version"], "4.1.0");
+        // already there
+        assert_eq!(
+            migrate_document_to(&mut document, &Version::new(4, 1, 0)).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn test_writable_version() {
+        assert_eq!(writable_version("4.1.0"), Ok(Version::new(4, 1, 0)));
+        assert_eq!(writable_version("4.0.0"), Ok(Version::new(4, 0, 0)));
+        assert_eq!(
+            writable_version(&PACKAGE_VERSION.to_string()),
+            Ok(PACKAGE_VERSION)
+        );
+        let newer = Version::new(PACKAGE_VERSION.major + 1, 0, 0);
+        assert!(writable_version(&newer.to_string()).is_err());
+        // no migration path, from the version where it stops
+        for version in ["3.2.0", "4.1.0-rc.1", "4.1.5"] {
+            let error = writable_version(version).unwrap_err();
+            assert!(
+                error.starts_with("No migration path found from ")
+                    && error.ends_with(&format!(" to {version}")),
+                "{error}"
+            );
+        }
+        assert!(writable_version("4.1").is_err());
+        assert!(
+            writable_version("\u{1b}[2J")
+                .unwrap_err()
+                .contains("\\u{1b}")
+        );
+    }
+
     #[test]
     fn test_groups_from_is_removed_down() {
         let task = |cred: Value| json!({"name": "t", "cred": cred});
@@ -898,6 +1272,116 @@ mod tests {
         assert_eq!(document["version"], PACKAGE_VERSION.to_string());
         document["version"] = original["version"].clone();
         assert_eq!(document, original);
+    }
+
+    #[test]
+    fn test_4_2_0_documents_up_and_down() {
+        let original = json!({
+            "version": "4.2.0",
+            "options": {"password": {"tries": 2}, "tty": {"owner": "target"}},
+            "roles": [{"name": "r", "tasks": [{"name": "t", "cred": {"setgid": {"from": "caller"}}, "commands": ["/usr/bin/ls ^a|b$"]}]}]
+        });
+        let mut document = original.clone();
+        let migration = migrate_document(&mut document).unwrap().unwrap();
+        assert_eq!(migration.from, Version::new(4, 2, 0));
+        assert_eq!(document["version"], PACKAGE_VERSION.to_string());
+        let mut unchanged = original.clone();
+        unchanged["version"] = document["version"].clone();
+        assert_eq!(
+            document, unchanged,
+            "4.2.0 to 4.3.0 changes nothing but the version"
+        );
+
+        Migration::migrate_from(
+            &PACKAGE_VERSION,
+            &Version::new(4, 2, 0),
+            &mut document,
+            DOCUMENT_MIGRATIONS,
+        )
+        .unwrap();
+        document["version"] = original["version"].clone();
+        assert_eq!(document, original);
+    }
+
+    #[test]
+    fn test_4_3_0_short_keys_written_for_4_2_0() {
+        // what chsr writes in CBOR, then chsr upgrade --to 4.2.0
+        let policy: SPolicy = serde_json::from_value(json!({
+            "options": {
+                "path": {"default": "delete", "add": ["/usr/bin"], "sub": ["/tmp"]},
+                "env": {"default": "delete", "override_behavior": false, "set": {"s": "v"}, "keep": ["HOME"], "check": ["TZ"], "delete": ["LD_*"]},
+                "root": "user", "bounding": "strict", "authentication": "perform", "execinfo": "hide",
+                "workdir": {"default": "none", "fallback": "/", "add": ["/home"], "sub": ["/root"]},
+                "timeout": {"type": "tty", "duration": "00:05:00", "max_usage": 1},
+                "password": {"tries": 3, "delay": "00:00:02"}, "tty": {"owner": "target"}, "umask": "022"
+            },
+            "roles": [{
+                "name": "r",
+                "options": {"workdir": "/srv"},
+                "actors": [{"type": "user", "id": "alice"}, {"type": "group", "groups": ["adm", "wheel"]}],
+                "tasks": [{"name": "t", "options": {"env": {"keep": ["A"]}}, "cred": {"setgid": {"from": "caller"}}, "commands": ["/usr/bin/ls"]}]
+            }]
+        }))
+        .unwrap();
+        let cbor = cbor4ii::serde::to_vec(Vec::new(), &Versioning::new(policy.clone())).unwrap();
+        let mut document: Value = cbor4ii::serde::from_slice(&cbor).unwrap();
+        assert_eq!(document["o"]["e"]["s"], json!(["LD_*"]), "{document}");
+        migrate_document_to(&mut document, &Version::new(4, 2, 0))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            document,
+            json!({
+                "version": "4.2.0",
+                "o": {
+                    "path": {"default": "delete", "add": ["/usr/bin"], "sub": ["/tmp"]},
+                    "env": {"default": "delete", "override_behavior": false, "set": {"s": "v"}, "keep": ["HOME"], "check": ["TZ"], "delete": ["LD_*"]},
+                    "root": "user", "bounding": "strict", "authentication": "perform", "execinfo": "hide",
+                    "workdir": {"default": "none", "fallback": "/", "add": ["/home"], "sub": ["/root"]},
+                    "timeout": {"type": "tty", "duration": "00:05:00", "max_usage": 1},
+                    "password": {"tries": 3, "delay": "00:00:02"}, "tty": {"owner": "target"}, "umask": "022"
+                },
+                "r": [{
+                    "n": "r",
+                    "o": {"workdir": "/srv"},
+                    "a": [{"type": "user", "id": "alice"}, {"type": "group", "groups": ["adm", "wheel"]}],
+                    "t": [{
+                        "n": "t",
+                        "o": {"env": {"keep": ["A"]}},
+                        "i": {"g": {"d": crate::database::structs::SetBehavior::None as u32, "o": "caller"}},
+                        "c": ["/usr/bin/ls"]
+                    }]
+                }]
+            })
+        );
+        let read: Versioning<SPolicy> = serde_json::from_value(document).unwrap();
+        assert_eq!(read.data, policy);
+
+        let root = crate::file::RootSettings::builder()
+            .storage(
+                crate::SettingsContent::builder()
+                    .method(crate::util::StorageMethod::CBOR)
+                    .settings(
+                        crate::RemoteStorageSettings::builder()
+                            .not_immutable()
+                            .path("/etc/security/rootasrole.d")
+                            .build(),
+                    )
+                    .build(),
+            )
+            .build();
+        let cbor = cbor4ii::serde::to_vec(Vec::new(), &Versioning::new(root)).unwrap();
+        let mut document: Value = cbor4ii::serde::from_slice(&cbor).unwrap();
+        migrate_document_to(&mut document, &Version::new(4, 2, 0))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            document,
+            json!({
+                "version": "4.2.0",
+                "storage": {"method": "cbor", "settings": {"immutable": false, "path": "/etc/security/rootasrole.d"}}
+            })
+        );
     }
 
     #[test]

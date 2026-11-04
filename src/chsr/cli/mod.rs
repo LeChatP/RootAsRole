@@ -81,12 +81,23 @@ where
             warn!("--type is ignored: chsr editor edits a file of the policy, in its format");
         }
         return match editor_target(storage, inputs.editor_path.as_deref())? {
-            EditorTarget::Root => start_editing(folder, &mut *storage.get_root_mut()),
-            EditorTarget::Policy(policy) => start_editing(folder, &mut *policy.borrow_mut()),
+            EditorTarget::Root => {
+                // other storage settings must name a policy that loads, in their format
+                let storage_check = storage.storage_check();
+                start_editing(folder, &mut *storage.get_root_mut(), |root| {
+                    storage_check.check(&root.storage)
+                })
+            }
+            EditorTarget::Policy(policy) => {
+                start_editing(folder, &mut *policy.borrow_mut(), |_| Ok(()))
+            }
         };
     }
     process_input(storage, inputs)
 }
+
+#[cfg(test)]
+mod locality;
 
 #[cfg(test)]
 mod tests {
@@ -1328,6 +1339,35 @@ mod tests {
         assert_eq!(env["check"], serde_json::json!(["env3", "env4"]));
     }
 
+    // a uid or a gid typed on the command line is saved as a number: saved as a string, dosr
+    // looked the user up by the name "1000", which nobody has
+    #[test]
+    fn test_ids_typed_in_chsr_are_saved_as_numbers() {
+        let name = "ids_typed_in_chsr_are_saved_as_numbers";
+        let (mut ctx, _defer) = TestContext::new(name);
+        for command in [
+            "r complete grant -u 1000 -g 1001 -g 1002&adm",
+            "r complete t t_complete cred set --setuid 1003 --setgid 1004,adm",
+        ] {
+            ctx.assert_command_success(command);
+        }
+        let saved = saved_policy(&mut ctx, name);
+        let actors = saved_role(&saved, "complete")["actors"]
+            .as_array()
+            .unwrap()
+            .clone();
+        for actor in [
+            serde_json::json!({"type": "user", "id": 1000}),
+            serde_json::json!({"type": "group", "groups": 1001}),
+            serde_json::json!({"type": "group", "groups": [1002, "adm"]}),
+        ] {
+            assert!(actors.contains(&actor), "{actor} not in {actors:?}");
+        }
+        let task = saved_task(&saved, "complete", "t_complete");
+        assert_eq!(task["cred"]["setuid"], 1003);
+        assert_eq!(task["cred"]["setgid"], serde_json::json!([1004, "adm"]));
+    }
+
     #[test]
     fn test_simple_edits_are_saved() {
         let name = "simple_edits_are_saved";
@@ -1533,6 +1573,107 @@ mod tests {
         assert!(!chsr_on(&root, "file list").unwrap());
         assert!(!chsr_on(&root, "file extra.json list").unwrap());
         assert_eq!(fs::read_to_string(&default).unwrap(), default_before);
+    }
+
+    /// The names of the roles of the CBOR policy file `path`; the file is closed, and unlocked,
+    /// before this returns.
+    fn cbor_role_names(path: &str) -> Vec<String> {
+        let policy = FileSettings::read_policy(path, StorageMethod::CBOR).unwrap();
+        policy
+            .data
+            .data
+            .borrow()
+            .roles
+            .iter()
+            .map(|role| role.as_ref().borrow().name.clone())
+            .collect()
+    }
+
+    /// The names of the roles of the root file `path`, the policy inside it.
+    fn root_role_names(path: &str) -> Vec<String> {
+        let root: Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+        root["roles"]
+            .as_array()
+            .map(|roles| {
+                roles
+                    .iter()
+                    .map(|role| role["name"].as_str().unwrap().to_string())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    // convert -r writes the policy where the root file then says, in the format asked, and the
+    // root file stays where dosr reads it; -r back to the root file puts the policy inside it
+    #[test]
+    fn test_convert_reconfigure_moves_the_policy_not_the_root_file() {
+        let name = "convert_reconfigure_moves_the_policy";
+        let (ctx, _defer) = TestContext::new(name);
+        let root = format!("{RAR_CFG_PATH}.{name}");
+        let data = format!("{RAR_CFG_PATH}.{name}.bin");
+        let _data_cleanup = defer(|| {
+            let _ = fs::remove_file(format!("{RAR_CFG_PATH}.{name}.bin"));
+        });
+        // the settings of the context are closed: chsr_on opens the policy like chsr does
+        drop(ctx);
+        let roles = root_role_names(&root);
+        assert!(!roles.is_empty());
+        assert!(chsr_on(&root, &format!("convert -r cbor {data}")).unwrap());
+        let saved: Value = serde_json::from_str(&fs::read_to_string(&root).unwrap()).unwrap();
+        assert_eq!(saved["storage"]["method"], "cbor");
+        assert_eq!(saved["storage"]["settings"]["path"], data.as_str());
+        assert!(saved.get("roles").is_none(), "{saved}");
+        let bytes = fs::read(&data).unwrap();
+        assert!(
+            serde_json::from_slice::<Value>(&bytes).is_err(),
+            "written in CBOR"
+        );
+        assert_eq!(cbor_role_names(&data), roles);
+        // an edit lands in the converted file, without waiting for its own lock
+        assert!(chsr_on(&root, "r newrole create").unwrap());
+        assert!(cbor_role_names(&data).contains(&"newrole".to_string()));
+        // back into the root file, in the format of the root file
+        assert!(chsr_on(&root, &format!("convert -r json {root}")).unwrap());
+        let saved: Value = serde_json::from_str(&fs::read_to_string(&root).unwrap()).unwrap();
+        assert_eq!(saved["storage"]["method"], "json");
+        assert_eq!(saved["storage"]["settings"]["path"], root.as_str());
+        let mut expected = roles;
+        expected.push("newrole".to_string());
+        assert_eq!(root_role_names(&root), expected);
+        // a file of the current policy is not overwritten
+        assert!(chsr_on(&root, &format!("convert -r cbor {data}")).unwrap());
+        assert!(!chsr_on(&root, &format!("convert cbor {data}")).unwrap());
+    }
+
+    // a policy directory is converted one file at a time, never into an empty policy
+    #[test]
+    fn test_convert_a_policy_directory() {
+        let (root, dir, _cleanup) = policy_directory(
+            "convert_a_policy_directory",
+            &[(
+                "default.json",
+                serde_json::json!({"roles": [{"name": "a", "actors": []}]}),
+            )],
+        );
+        let out = format!("{dir}.out.json");
+        let _out_cleanup = defer(|| {
+            let _ = fs::remove_file(format!(
+                "{RAR_CFG_PATH}.convert_a_policy_directory.d.out.json"
+            ));
+        });
+        let root_before = fs::read_to_string(&root).unwrap();
+        assert!(chsr_on(&root, &format!("convert json {out}")).is_err());
+        assert!(chsr_on(&root, &format!("convert -r json {out}")).is_err());
+        assert!(fs::metadata(&out).is_err());
+        assert!(
+            chsr_on(
+                &root,
+                &format!("convert --from json {dir}/default.json json {out}")
+            )
+            .unwrap()
+        );
+        assert_eq!(role_names(&out), ["a"]);
+        assert_eq!(fs::read_to_string(&root).unwrap(), root_before);
     }
 
     #[test]
@@ -2739,6 +2880,217 @@ mod tests {
             serde_json::json!(["PS[1-4]"])
         );
         assert_eq!(fs::read_to_string(&path).unwrap(), root);
+    }
+
+    // chsr upgrade --to writes every file for an older version, with the migrations down that
+    // only this version knows: no command did, the policy of a downgraded RootAsRole kept the
+    // words of this version, which 4.1.0 reads with another meaning (`^start|stop$`)
+    #[test]
+    fn test_upgrade_to_an_older_version() {
+        let path = format!("{RAR_CFG_PATH}.upgrade_to");
+        let _cleanup = defer(|| {
+            let _ = fs::remove_file(format!("{RAR_CFG_PATH}.upgrade_to"));
+        });
+        let version = rootasrole_core::PACKAGE_VERSION.to_string();
+        let written = serde_json::json!({
+            "version": version,
+            "storage": {"method": "json", "settings": {"path": path, "immutable": false}},
+            "options": {"password": {"tries": 2}, "tty": {"owner": "target"}, "env": {"check": ["LC_*"]}},
+            "roles": [{"name": "r", "tasks": [{
+                "name": "t",
+                "cred": {"setuid": "nobody", "setgid": {"from": "caller"}},
+                "commands": ["/usr/bin/systemctl ^start|stop$"]
+            }]}]
+        });
+        fs::write(&path, written.to_string()).unwrap();
+        let unchanged = |command: &str| {
+            let before = fs::read_to_string(&path).unwrap();
+            let result = upgrade(&path, command);
+            assert_eq!(fs::read_to_string(&path).unwrap(), before, "{command}");
+            result
+        };
+        // a newer version, one without a migration path, not a version, --check
+        let newer = format!("{}.0.0", rootasrole_core::PACKAGE_VERSION.major + 1);
+        for to in [newer.as_str(), "3.0.0", "4.1", "4.1.0 --check"] {
+            assert!(unchanged(&format!("upgrade --to {to}")).is_err(), "{to}");
+        }
+        assert!(unchanged("upgrade --check --to 4.1.0").is_err());
+        // the current version: chsr upgrade, nothing to do
+        assert!(!unchanged(&format!("upgrade --to {version}")).unwrap());
+
+        assert!(!upgrade(&path, "upgrade --to 4.1.0").unwrap());
+        let saved = read_json(&path);
+        assert_eq!(saved["version"], "4.1.0");
+        assert_eq!(
+            saved["options"],
+            serde_json::json!({"env": {"check": ["LC_*"]}})
+        );
+        let task = &saved["roles"][0]["tasks"][0];
+        assert_eq!(task["cred"], serde_json::json!({"setuid": "nobody"}));
+        assert_eq!(
+            task["commands"],
+            serde_json::json!(["/usr/bin/systemctl ^(?:start|stop)$"])
+        );
+        // this version reads it again, and upgrades it: what 4.1.0 does not know is lost
+        assert!(upgrade(&path, "upgrade --check").is_err());
+        assert!(!upgrade(&path, "upgrade").unwrap());
+        assert_eq!(read_json(&path)["version"], version);
+        assert_eq!(read_json(&path)["options"], saved["options"]);
+
+        // below 4.1.0, the words change: dosr of this version refuses the policy until the
+        // older version is installed
+        assert!(!upgrade(&path, "upgrade --to 4.0.3").unwrap());
+        let saved = read_json(&path);
+        assert_eq!(saved["version"], "4.0.3");
+        assert_eq!(
+            saved["options"]["env"]["check"],
+            serde_json::json!(["LC_.*"])
+        );
+    }
+
+    // a policy directory in CBOR, whose short keys the migrations down must know too
+    #[test]
+    fn test_upgrade_to_an_older_version_of_a_cbor_directory() {
+        let path = format!("{RAR_CFG_PATH}.upgrade_to_dir");
+        let dir = format!("{path}.d");
+        let _cleanup = defer(|| {
+            let _ = fs::remove_file(format!("{RAR_CFG_PATH}.upgrade_to_dir"));
+            let _ = fs::remove_dir_all(format!("{RAR_CFG_PATH}.upgrade_to_dir.d"));
+        });
+        let version = rootasrole_core::PACKAGE_VERSION.to_string();
+        fs::write(
+            &path,
+            serde_json::json!({
+                "version": version,
+                "storage": {"method": "cbor", "settings": {"path": dir, "immutable": false}}
+            })
+            .to_string(),
+        )
+        .unwrap();
+        fs::create_dir_all(&dir).unwrap();
+        let file = format!("{dir}/policy.bin");
+        let policy = serde_json::json!({
+            "version": version,
+            "options": {"umask": "077"},
+            "roles": [{"name": "r", "options": {"tty": {"owner": "target"}}, "tasks": [{
+                "name": "t",
+                "options": {"password": {"tries": 1}},
+                "commands": ["/usr/bin/id"]
+            }]}]
+        });
+        fs::write(&file, cbor4ii::serde::to_vec(Vec::new(), &policy).unwrap()).unwrap();
+        let root = fs::read_to_string(&path).unwrap();
+
+        assert!(!upgrade(&path, "upgrade --to 4.1.0").unwrap());
+        let saved: Value = cbor4ii::serde::from_slice(&fs::read(&file).unwrap()).unwrap();
+        assert_eq!(saved["version"], "4.1.0");
+        let text = saved.to_string();
+        assert!(
+            !text.contains("password") && !text.contains("tty"),
+            "{text}"
+        );
+        assert!(
+            text.contains("077") && text.contains("/usr/bin/id"),
+            "{text}"
+        );
+        // the root file holds no policy: only its version changes
+        let mut expected: Value = serde_json::from_str(&root).unwrap();
+        expected["version"] = Value::from("4.1.0");
+        assert_eq!(
+            normalize_json_object(read_json(&path)),
+            normalize_json_object(expected)
+        );
+    }
+
+    // the root file names a policy where chsr loads no file: a file that does not exist, an empty
+    // directory, or one whose files cannot be loaded; chsr edited the policy of the root file,
+    // which dosr does not read (it reads none there, and refuses every command), and said it
+    // succeeded
+    #[test]
+    fn test_no_edit_of_the_root_policy_when_the_root_file_names_another_one() {
+        let path = format!("{RAR_CFG_PATH}.names_nothing");
+        let dir = format!("{path}.d");
+        let missing = format!("{path}.missing.json");
+        let _cleanup = defer(|| {
+            let path = format!("{RAR_CFG_PATH}.names_nothing");
+            let _ = fs::remove_file(&path);
+            let _ = fs::remove_dir_all(format!("{path}.d"));
+            let _ = fs::remove_file(format!("{path}.missing.json"));
+        });
+        fs::create_dir_all(&dir).unwrap();
+        let version = rootasrole_core::PACKAGE_VERSION.to_string();
+        let root_naming = |named: &str| {
+            serde_json::json!({
+                "version": version,
+                "storage": {"method": "json", "settings": {"path": named, "immutable": false}}
+            })
+            .to_string()
+        };
+        for (named, expected) in [
+            (missing.as_str(), "which is not a policy file"),
+            (dir.as_str(), "where chsr loads no policy file"),
+        ] {
+            fs::write(&path, root_naming(named)).unwrap();
+            for command in ["r probe add", "show"] {
+                let error = upgrade(&path, command).unwrap_err().to_string();
+                assert!(error.contains(expected), "{command}: {error}");
+                assert_eq!(fs::read_to_string(&path).unwrap(), root_naming(named));
+            }
+            // nor converted: a directory is refused anyway
+            assert!(upgrade(&path, "convert json target/names_nothing.json").is_err());
+            assert!(!std::path::Path::new("target/names_nothing.json").exists());
+        }
+        // a file that cannot be loaded: chsr upgrade --check tells why
+        fs::write(
+            format!("{dir}/old.json"),
+            r#"{"version":"3.0.0","roles":[]}"#,
+        )
+        .unwrap();
+        fs::write(&path, root_naming(&dir)).unwrap();
+        assert!(upgrade(&path, "r probe add").is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), root_naming(&dir));
+        // the root file names itself: its policy is the one that dosr reads
+        let itself = root_naming(&path);
+        fs::write(&path, &itself).unwrap();
+        assert!(upgrade(&path, "r probe add").unwrap());
+    }
+
+    // a root file without a path: the policy is the data path, here a directory, which convert
+    // refuses like a directory that the root file names; it took the first file of it
+    #[test]
+    fn test_convert_a_policy_directory_at_the_data_path() {
+        let path = format!("{RAR_CFG_PATH}.convert_data_dir");
+        let dir = format!("{path}.d");
+        let _cleanup = defer(|| {
+            let path = format!("{RAR_CFG_PATH}.convert_data_dir");
+            let _ = fs::remove_file(&path);
+            let _ = fs::remove_dir_all(format!("{path}.d"));
+            let _ = fs::remove_file(format!("{path}.out.json"));
+        });
+        fs::create_dir_all(&dir).unwrap();
+        let version = rootasrole_core::PACKAGE_VERSION.to_string();
+        fs::write(
+            &path,
+            serde_json::json!({"version": version, "storage": {"method": "json", "settings": {"immutable": false}}}).to_string(),
+        )
+        .unwrap();
+        for name in ["a", "b"] {
+            fs::write(
+                format!("{dir}/{name}.json"),
+                serde_json::json!({"version": version, "roles": [{"name": name}]}).to_string(),
+            )
+            .unwrap();
+        }
+        let mut settings =
+            FileSettings::write_all(path.as_str(), dir.as_str(), StorageMethod::JSON).unwrap();
+        assert_eq!(settings.policy_files().count(), 2);
+        let out = format!("{path}.out.json");
+        let error = main(&mut settings, ["convert", "json", out.as_str()])
+            .call()
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("directory"), "{error}");
+        assert!(!std::path::Path::new(&out).exists());
     }
 
     #[test]

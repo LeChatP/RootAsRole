@@ -14,7 +14,8 @@ RAR_CFG_DATA_PATH = "/etc/security/rootasrole.d/"
 RAR_PAM_SERVICE = "dosr"
 RAR_BIN_PATH = "/usr/bin"
 RAR_CFG_IMMUTABLE = "true"
-RAR_CHSR_EDITOR_PATH = "/usr/bin/vim"
+RAR_CHSR_EDITOR_PATH = "/usr/bin/vim,/usr/bin/nano,/usr/bin/emacs,/usr/bin/joe,/usr/bin/micro"
+RAR_LOG_COMMAND = "journalctl -t dosr -p info"
 RAR_TIMEOUT_TYPE = "ppid"
 RAR_TIMEOUT_DURATION = "00:05:00"
 RAR_TIMEOUT_MAX_USAGE = ""
@@ -50,12 +51,13 @@ These variables allows a customized compilation of the binary. With these variab
 | Variable Name | Type / Format | Description |
 | :--- | :--- | :--- |
 | `RAR_BIN_PATH` | Folder Path | Used by the `xtask` command: defines the directory where the compiled binaries will be copied. |
-| `RAR_CFG_TYPE` | String (`"json"` | `"cbor"`) | Defines the format used by the configuration backend storage. |
+| `RAR_CFG_TYPE` | String (`"json"` \| `"cbor"`) | Defines the format used by the configuration backend storage. |
 | `RAR_CFG_PATH` | File Path | Absolute filesystem path to the primary policy configuration file. |
 | `RAR_CFG_DATA_PATH` | Directory/File Path | Path to configuration data directory. The directory must exist before compiling, or its name must end with `.d`. |
-| `RAR_CFG_IMMUTABLE` | Boolean String (`"true"` | `"false"`) | When true, enforces strict write protection/immutability on `RAR_CFG_PATH`, `RAR_CFG_DATA_PATH`, and their top-level contents (non-recursive). |
-| `RAR_CHSR_EDITOR_PATH` | Binary Path | Defines the binary path for the `chsr` policy editor utility (e.g., `/usr/bin/vim` or `/usr/bin/nano`). |
+| `RAR_CFG_IMMUTABLE` | Boolean String (`"true"` \| `"false"`) | When true, enforces strict write protection/immutability on `RAR_CFG_PATH`, `RAR_CFG_DATA_PATH`, and their top-level contents (non-recursive). Only in a release build: a debug build never sets the flag. |
+| `RAR_CHSR_EDITOR_PATH` | Comma-separated (`,`) binary paths | The editors that `chsr editor` may run. `chsr` takes the one that `/usr/bin/editor` points to when it is in the list, otherwise the first one installed, and `RAR_EDITOR` can only choose among them. vim, nano, emacs, joe and micro are tested under the sandbox of the editor: another editor may not start there. |
 | `RAR_PAM_SERVICE` | String | The exact system PAM service configuration identifier called during user authentication. |
+| `RAR_LOG_COMMAND` | String | The command that `dosr` names to the user after an error whose reason is only in the log, like a refused policy file. `-p info` leaves out the debug lines of the PAM modules. Empty, `dosr` only says to look in the system log. On a system without journald, set your own command, or leave it empty. |
 
 <blockquote class="caroot">
 For security reasons, you'll have to set absolute paths.
@@ -65,12 +67,12 @@ For security reasons, you'll have to set absolute paths.
 
 | Variable Name | Type / Format | Description |
 | :--- | :--- | :--- |
-| `RAR_ENV_DEFAULT` | String (`"none"` | `"check"` | `"all"`) | The default handling posture for environment variables inherited from the calling user. |
+| `RAR_ENV_DEFAULT` | String (`"delete"` \| `"keep"`) | The default handling posture for environment variables inherited from the calling user: `delete` removes them except the keep and check lists, `keep` keeps them except the delete list. In both modes, a variable of the check list is removed when its value is unsafe. |
 | `RAR_ENV_KEEP_LIST` | Comma-separated (`,`) | A list of explicit environment variables allowed to safely inherit and pass through unchanged. |
 | `RAR_ENV_CHECK_LIST` | Comma-separated (`,`) | Environment variables routed to strict validation/compliance check logic. |
-| `RAR_ENV_DELETE_LIST`| Comma-separated (`,`) | Environment variables aggressively wiped and stripped out of the execution context entirely. |
+| `RAR_ENV_DELETE_LIST`| Comma-separated (`,`) | Environment variables removed from the user's environment in `keep` mode: the variables of the dynamic loader, of the shells and of the interpreters. |
 | `RAR_ENV_SET_LIST` | Newline-separated (`\n`), `K=V` | Static key-value pairs to inject directly into the target execution environment. |
-| `RAR_ENV_OVERRIDE_BEHAVIOR` | Boolean String (`"true"` | `"false"`) | Rules whether environment mutation handling can be overridden at runtime via the `-E` flag. |
+| `RAR_ENV_OVERRIDE_BEHAVIOR` | Boolean String (`"true"` \| `"false"`) | Rules whether environment mutation handling can be overridden at runtime via the `-E` flag. |
 
 <blockquote class="caroot-stare">
 Malformed values strings create compile-time errors.
@@ -80,10 +82,10 @@ Malformed values strings create compile-time errors.
 
 | Variable Name | Type / Format | Description |
 | :--- | :--- | :--- |
-| `RAR_PATH_DEFAULT` | String (`"none"` \| `"keep_safe"` \| `"keep_unsafe"`) | Default processing stance for target system `PATH` variable management. Keep safe ignores relative paths, where keep_unsafe is allowing relative paths. |
+| `RAR_PATH_DEFAULT` | String (`"delete"` \| `"keep-safe"` \| `"keep-unsafe"`) | Default processing stance for target system `PATH` variable management. `delete` gives the command the add list only. `keep-safe` adds the `PATH` of the user after it, without its relative paths, where `keep-unsafe` is allowing relative paths. |
 | `RAR_PATH_ADD_LIST` | Colon-separated (`:`) | Explicit directory paths appended/inserted directly into the `PATH`. |
 | `RAR_PATH_REMOVE_LIST`| Colon-separated (`:`) | Explicit directory paths to actively scrub out of the `PATH`. |
-| `RAR_WORKDIR_BEHAVIOR`| String (`"allowlist"` \| `"blacklist"`) | Defines the basic behavioral model of the target directory ruleset. |
+| `RAR_WORKDIR_BEHAVIOR`| String (`"all"` \| `"none"`) | Defines the basic behavioral model of the target directory ruleset: `all` allows every working directory except the remove list, `none` only those of the add list. |
 | `RAR_WORKDIR_ADD_LIST`| Comma-separated (`,`) | Allowed system directories where users are explicitly authorized to execute commands. |
 | `RAR_WORKDIR_REMOVE_LIST`| Comma-separated (`,`) | Denylist of forbidden working directories where execution requests are rejected. |
 | `RAR_WORKDIR_FALLBACK`| Optional File Path | Forces a static fallback working directory for the executed command if not defined. Warning! This will *always* set the working directory for *every* commands. |
@@ -99,14 +101,14 @@ Be very careful with PATH management, "keep-unsafe" is insecure. And I strongly 
 | :--- | :--- | :--- |
 | `RAR_AUTHENTICATION` | String (`"perform"` \| `"skip"`) | Controls whether explicit user authentication sequences must be requested. |
 | `RAR_BOUNDING` | String (`"strict"` \| `"ignore"`) | Dictates whether to actively lock down or ignore the Linux capabilities "Bounding" set. |
-| `RAR_USER_CONSIDERED` | String (`"root"` \| `"user"`) | Determines if UID 0 requests are treated like a regular user or preserve classic legacy root behavior. |
-| `RAR_UMASK` | Octal / Decimal Integer | Default file creation mask applied directly to processes. |
+| `RAR_USER_CONSIDERED` | String (`"user"` \| `"privileged"`) | Determines if UID 0 requests are treated like a regular user (`user`) or preserve classic legacy root behavior (`privileged`). |
+| `RAR_UMASK` | Octal, from 0 to 777 | Default file creation mask applied directly to processes, when the policy sets none. It is written in octal, like the `umask` option of the policy. |
 | `RAR_TIMEOUT_TYPE` | String (`"ppid"` \| `"tty"` \| `"uid"`) | The operating system context key used to track and anchor elevation timeouts. |
 | `RAR_TIMEOUT_DURATION`| Duration `"hh:mm:ss"` | The temporal lifespan window allowed for a token before authorization validation expires. |
-| `RAR_TIMEOUT_MAX_USAGE`| Integer (`u64`) | Absolute limits on how many times a given token context can be reused. |
+| `RAR_TIMEOUT_MAX_USAGE`| Integer (`u64`), or empty | Absolute limits on how many times a given token context can be reused. Empty: no limit. |
 | `RAR_TIMEOUT_STORAGE` | Folder Path | Filesystem path used by the timeout engine to persist execution timestamp tokens. |
 | `RAR_EXEC_INFO_DISPLAY`| String (`"hide"` \| `"show"`) | Give the ability to users to know their allowed commands and configuration applied. |
-| `RAR_PASSWORD_TRIES` | Integer (`u8`) | Maximum number of password attempts allowed before aborting the authentication sequence. |
+| `RAR_PASSWORD_TRIES` | Integer, from 1 to 255 | Maximum number of password attempts allowed before aborting the authentication sequence. |
 | `RAR_PASSWORD_DELAY` | Duration `"hh:mm:ss"` | The time to wait between password attempts. |
 
 <blockquote class="caroot-stare">

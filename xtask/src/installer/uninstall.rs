@@ -3,7 +3,7 @@ use log::warn;
 use std::fs;
 
 use crate::{
-    configure::PAM_CONFIGS,
+    configure::is_deployed_pam_config,
     util::{
         ImmutableLock, PAM_CONFIG_SERVICE, RAR_CFG_DATA_PATH, RAR_CFG_PATH, toggle_lock_config,
     },
@@ -21,7 +21,7 @@ pub fn uninstall(opts: &UninstallOptions) -> Result<(), anyhow::Error> {
         errors.push(fs::remove_file(CHSR_DEST).context(CHSR_DEST));
         // the PAM service is removed if it is one that the installer deployed
         let deployed = fs::read_to_string(&pam_config_path)
-            .is_ok_and(|content| PAM_CONFIGS.contains(&content.as_str()));
+            .is_ok_and(|content| is_deployed_pam_config(&content));
         if opts.clean_config || deployed {
             errors.push(fs::remove_file(&pam_config_path).context(pam_config_path));
         }

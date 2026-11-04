@@ -12,9 +12,9 @@ use log::{debug, error, info, warn};
 use nonstick2::{
     AuthnFlags, ConversationAdapter, EnvironMap, ErrorCode, LibPamTransaction, PamShared,
     Result as PamResult, TransactionBuilder, conv::Demux, items::Items, items::ItemsMut,
-    libpam::SessionActive,
+    libpam::AccountManaged, libpam::SessionActive,
 };
-use rootasrole_core::{eprintln_ignore_io_error, println_ignore_io_error};
+use rootasrole_core::eprintln_ignore_io_error;
 
 use crate::finder::PasswordSettings;
 #[cfg(feature = "timeout")]
@@ -32,6 +32,7 @@ use self::rpassword::Terminal;
 
 #[allow(dead_code, reason = "This file is part of sudo-rs.")]
 mod cutils;
+mod privileges;
 #[allow(dead_code, reason = "This file is part of sudo-rs.")]
 pub mod rpassword;
 #[allow(dead_code, reason = "This file is part of sudo-rs.")]
@@ -60,6 +61,17 @@ impl SrConversationHandler<'_> {
             Terminal::open_tty()
         }
     }
+    /// Show a message of a PAM module where the prompts go, as sudo-rs does (`handle_info` in
+    /// `src/pam/converse.rs`): on the terminal, or on stderr with `-S` or without a terminal. On
+    /// stdout, it went into the output of the command (`dosr cmd >file`).
+    fn show(&self, message: &str) {
+        if let Ok(mut term) = self.open() {
+            let _ = term.prompt(&format!("{message}\n"));
+        } else {
+            eprintln_ignore_io_error!("{message}");
+        }
+    }
+
     /// Whether PAM asks for the password with its default prompt, `Password:` or
     /// `<user>'s Password:`, optionally followed by one space.
     fn is_pam_password_prompt(&self, prompt: &impl AsRef<str>) -> bool {
@@ -96,9 +108,7 @@ impl ConversationAdapter for SrConversationHandler<'_> {
             .map_err(|_| ErrorCode::ConversationError)?;
         let read = term.read_cleartext().map_err(|_| ErrorCode::BufferError)?;
         drop(term);
-        Ok(std::ffi::OsString::from(
-            String::from_utf8_lossy(&read).to_string(),
-        ))
+        answer(&read)
     }
 
     fn masked_prompt(&self, prompt: impl AsRef<std::ffi::OsStr>) -> PamResult<std::ffi::OsString> {
@@ -112,26 +122,36 @@ impl ConversationAdapter for SrConversationHandler<'_> {
             prompt.as_ref().to_string_lossy()
         };
         let mut term = self.open().map_err(|_| ErrorCode::ConversationError)?;
-        term.prompt(&pam_prompt)
-            .map_err(|_| ErrorCode::ConversationError)?;
-        let read = term.read_password().map_err(|_| ErrorCode::BufferError)?;
-        drop(term);
-        let os_str = CStr::from_bytes_until_nul(&read)
-            .map_err(|_| ErrorCode::BufferError)?
-            .to_str()
+        let read = term
+            .read_password(&pam_prompt)
             .map_err(|_| ErrorCode::BufferError)?;
-        Ok(std::ffi::OsString::from(os_str))
+        drop(term);
+        answer(&read)
     }
 
     fn error_msg(&self, message: impl AsRef<std::ffi::OsStr>) {
-        error!("{}", message.as_ref().to_string_lossy());
-        eprintln_ignore_io_error!("{}", message.as_ref().to_string_lossy());
+        let message = message.as_ref().to_string_lossy();
+        error!("{message}");
+        self.show(&message);
     }
 
     fn info_msg(&self, message: impl AsRef<std::ffi::OsStr>) {
-        info!("{}", message.as_ref().to_string_lossy());
-        println_ignore_io_error!("{}", message.as_ref().to_string_lossy());
+        let message = message.as_ref().to_string_lossy();
+        info!("{message}");
+        self.show(&message);
     }
+}
+
+/// The answer to a question, shown in clear or hidden: the bytes before the first NUL of the
+/// buffer, as typed. PAM refuses an answer that holds a NUL (`BufferError` from nonstick2), and
+/// the buffer holds NULs after the answer: the whole buffer made every question shown in clear
+/// fail (`pam_duo`, `pam_google_authenticator` with `echo_verification_code`, `pam_get_user`).
+/// PAM compares bytes: a password that is not UTF-8 (typed on a Latin-1 terminal) was refused
+/// when it was taken as text, as `su` and sudo-rs give it as it is.
+fn answer(read: &[u8]) -> PamResult<std::ffi::OsString> {
+    use std::os::unix::ffi::OsStrExt;
+    let answer = CStr::from_bytes_until_nul(read).map_err(|_| ErrorCode::BufferError)?;
+    Ok(std::ffi::OsStr::from_bytes(answer.to_bytes()).to_os_string())
 }
 
 /// The terminal and the requesting user of the transaction, like sudo sets them: modules such
@@ -243,13 +263,22 @@ fn retry_authentication<T, U>(
     }
 }
 
-pub fn start_session<'a>(
+/// A PAM transaction of dosr in the state `S`.
+type Transaction<'a, S> = LibPamTransaction<Demux<SrConversationHandler<'a>>, S>;
+
+/// A transaction whose password and account are checked, before its session: dropped, it ends
+/// without one (`pam_end` only).
+pub type Authenticated<'a> = Transaction<'a, AccountManaged>;
+
+/// Check the password and the account of the caller, unless the task skips the authentication,
+/// and record the authentication for the timestamp of the task.
+pub fn authenticate<'a>(
     authentication: SAuthentication,
     #[cfg_attr(not(feature = "timeout"), allow(unused_variables))] timeout: &STimeout,
     password: PasswordSettings,
     user: &Cred,
     cli: &Cli,
-) -> SrResult<LibPamTransaction<Demux<SrConversationHandler<'a>>, SessionActive>> {
+) -> SrResult<Authenticated<'a>> {
     // `dosr a | dosr b` would read both passwords from the terminal at the same time, each one
     // getting part of the keystrokes: the terminal is locked until this authentication is done,
     // and the other dosr checks its timestamp once it gets the lock (sudo-rs #1650).
@@ -291,47 +320,78 @@ pub fn start_session<'a>(
         SrError::SystemError
     })?;
 
-    let txn = if need_password_auth {
-        retry_authentication(txn, password, |txn| txn.authenticate(AuthnFlags::SILENT))
-            .map_err(|e| {
-                error!("Authentication failed: {e}");
-                SrError::AuthenticationFailed
-            })?
-            .account_management(AuthnFlags::SILENT)
-            .map_err(|e| {
-                error!("Authentication failed: {}", e.1);
-                SrError::AuthenticationFailed
-            })?
-    } else {
-        txn.dangerous_account_management_without_authentication(AuthnFlags::SILENT)
-            .map_err(|e| {
-                error!("Account management failed: {}", e.1);
-                SrError::AuthenticationFailed
-            })?
-    };
+    // the password and the account are checked with the effective uid of root, without its
+    // capabilities: pam_faillock counts the failures, as under sudo
+    let txn = privileges::as_root_without_capabilities(|| {
+        if need_password_auth {
+            retry_authentication(txn, password, |txn| txn.authenticate(AuthnFlags::SILENT))
+                .map_err(|e| {
+                    error!("Authentication failed: {e}");
+                    SrError::AuthenticationFailed
+                })?
+                .account_management(AuthnFlags::SILENT)
+                .map_err(|e| {
+                    error!("Authentication failed: {}", e.1);
+                    SrError::AuthenticationFailed
+                })
+        } else {
+            txn.dangerous_account_management_without_authentication(AuthnFlags::SILENT)
+                .map_err(|e| {
+                    error!("Account management failed: {}", e.1);
+                    SrError::AuthenticationFailed
+                })
+        }
+    })?;
     check_pam_user(&txn, user)?;
 
-    let txn = txn
-        .establish_credentials()
-        .map_err(|e| {
-            error!("Failed to establish credentials: {}", e.1);
-            SrError::SystemError
-        })?
-        .open_session()
-        .map_err(|e| {
-            error!("Failed to open session: {}", e.1);
-            SrError::SystemError
-        })?;
-    check_pam_user(&txn, user)?;
-
-    // Failing to save the cookie only means that the user will be asked to authenticate again;
-    // a task that skips the authentication keeps no cookie
+    // Failing to save the cookie only means that the user will be asked to authenticate again.
+    // Only a password checked by PAM makes a cookie: a cookie that spared it was used already
     #[cfg(feature = "timeout")]
-    if let Err(e) = timeout::record_authentication(authentication, user, timeout) {
+    if let Err(e) = timeout::record_authentication(need_password_auth, user, timeout) {
         error!("Failed to update timeout cookie: {e}");
     }
 
     Ok(txn)
+}
+
+/// The PAM session of the command, closed when it is dropped, whatever ends dosr once it is open:
+/// as the caller, with `CAP_AUDIT_WRITE` only for the audit records of libpam.
+/// `std::process::exit` runs no destructor, dosr drops it before.
+pub struct Session<'a>(Option<Transaction<'a, SessionActive>>);
+
+impl Session<'_> {
+    /// The variables that PAM modules set for the session, see [`session_env`].
+    pub fn env(&self) -> Vec<(String, String)> {
+        self.0.as_ref().map_or_else(Vec::new, session_env)
+    }
+}
+
+impl Drop for Session<'_> {
+    fn drop(&mut self) {
+        privileges::with_audit_write(|| drop(self.0.take()));
+    }
+}
+
+/// Establish the credentials and open the session, for a command that runs: dosr opens none for
+/// a command that it refuses after the password, nor for `-i`.
+pub fn open_session<'a>(txn: Authenticated<'a>, user: &Cred) -> SrResult<Session<'a>> {
+    let session = Session(Some(privileges::with_audit_write(|| {
+        txn.establish_credentials()
+            .map_err(|e| {
+                error!("Failed to establish credentials: {}", e.1);
+                SrError::SystemError
+            })?
+            .open_session()
+            .map_err(|e| {
+                error!("Failed to open session: {}", e.1);
+                SrError::SystemError
+            })
+    })?));
+    if let Some(txn) = &session.0 {
+        // another user: the session is closed when dropped
+        check_pam_user(txn, user)?;
+    }
+    Ok(session)
 }
 
 #[cfg(test)]
@@ -372,6 +432,29 @@ mod tests {
             duration: Some(SignedDuration::from_secs(300)), // 5 minutes
             max_usage: Some(3),
             extra_fields: Map::default(),
+        }
+    }
+
+    /// The password, the account and the session, as for a command that runs.
+    fn start_session<'a>(
+        authentication: SAuthentication,
+        timeout: &STimeout,
+        password: PasswordSettings,
+        user: &Cred,
+        cli: &Cli,
+    ) -> SrResult<Session<'a>> {
+        authenticate(authentication, timeout, password, user, cli)
+            .and_then(|txn| open_session(txn, user))
+    }
+
+    /// The error of `start_session`: none with the capabilities to check the account as root,
+    /// else the refusal before any PAM call.
+    fn assert_session_or_refusal(error: Option<&SrError>) {
+        let permitted = capctl::CapState::get_current().unwrap().permitted;
+        if permitted.has(capctl::Cap::SETUID) && permitted.has(capctl::Cap::SETPCAP) {
+            assert_eq!(error, None);
+        } else {
+            assert_eq!(error, Some(&SrError::InsufficientPrivileges));
         }
     }
 
@@ -464,19 +547,18 @@ mod tests {
 
     #[test]
     fn test_conversation_handler_error_msg() {
-        let handler = SrConversationHandler::default();
+        // on stderr, not on the terminal of the developer
+        let handler = SrConversationHandler::builder().use_stdin(true).build();
 
         // This test verifies the error_msg method doesn't panic
-        // In a real test environment, you might want to capture stderr
         handler.error_msg(OsStr::new("Test error message"));
     }
 
     #[test]
     fn test_conversation_handler_info_msg() {
-        let handler = SrConversationHandler::default();
+        let handler = SrConversationHandler::builder().use_stdin(true).build();
 
         // This test verifies the info_msg method doesn't panic
-        // In a real test environment, you might want to capture stdout
         handler.info_msg(OsStr::new("Test info message"));
     }
 
@@ -503,7 +585,7 @@ mod tests {
             &user,
             &cli,
         );
-        assert!(result.is_ok());
+        assert_session_or_refusal(result.err().as_ref());
     }
 
     #[test]
@@ -527,6 +609,23 @@ mod tests {
             &user,
             &cli,
         );
+    }
+
+    // the answer to a question shown in clear stops at the first NUL of the buffer, and keeps the
+    // bytes as typed
+    #[test]
+    fn test_answer_ends_at_the_first_nul() {
+        let mut buffer = [0u8; 511];
+        buffer[..4].copy_from_slice(b"1234");
+        assert_eq!(answer(&buffer), Ok(OsStr::new("1234").to_os_string()));
+        assert_eq!(answer(&[0u8; 511]), Ok(std::ffi::OsString::new()));
+        buffer[..4].copy_from_slice(b"\xff\x00ab");
+        assert_eq!(
+            answer(&buffer),
+            Ok(OsStr::from_bytes(b"\xff").to_os_string())
+        );
+        // a full buffer has no NUL to end it
+        assert_eq!(answer(&[b'a'; 511]), Err(ErrorCode::BufferError));
     }
 
     #[test]
@@ -615,18 +714,21 @@ mod tests {
 
         let cli = Cli::builder().prompt("Password: ").build();
         // Test different timeout types don't cause errors
-        assert!(
+        assert_session_or_refusal(
             start_session(
                 auth,
                 &timeout_ppid,
                 PasswordSettings::default(),
                 &user,
-                &cli
+                &cli,
             )
-            .is_ok()
+            .err()
+            .as_ref(),
         );
-        assert!(
-            start_session(auth, &timeout_tty, PasswordSettings::default(), &user, &cli).is_ok()
+        assert_session_or_refusal(
+            start_session(auth, &timeout_tty, PasswordSettings::default(), &user, &cli)
+                .err()
+                .as_ref(),
         );
     }
 

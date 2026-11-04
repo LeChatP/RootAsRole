@@ -1,4 +1,4 @@
-use log::{debug, info, warn};
+use log::{debug, warn};
 use rootasrole_core::{
     database::{
         command::{anchored_regex, regex_arguments, split_command},
@@ -90,7 +90,7 @@ fn match_path(
         debug!("match_path: user absolute path");
         let min = match_single_path(user_path, role_path);
         if min.better(previous_min) {
-            info!("match_path: found better match {min:?}");
+            debug!("match_path: found better match {min:?}");
             *final_path = Some(user_path.to_path_buf());
         }
         min

@@ -200,10 +200,23 @@ pub const AUTHENTICATION: SAuthentication =
 
 pub const PRIVILEGED: SPrivileged = SPrivileged::const_parse(env!("RAR_USER_CONSIDERED"));
 
-pub const UMASK: SUMask = SUMask(result::unwrap_or!(
-    u16::from_str_radix(env!("RAR_UMASK"), 10),
-    0o022
-));
+/// The umask of a command whose policy sets none (`RAR_UMASK`).
+///
+/// It is written in octal, like the `umask` option of a policy. A value that is not an octal number
+/// up to 777, or a missing build variable, stops the build.
+pub const UMASK: SUMask = SUMask(octal_umask(env!("RAR_UMASK")));
+
+/// `text` read as an octal umask, as `RAR_UMASK` is written: it was read as a decimal number,
+/// so `"0022"` gave 0o026.
+///
+/// # Panics
+/// When `text` is not an octal number from 0 to 777, at build time for `RAR_UMASK`.
+const fn octal_umask(text: &str) -> u16 {
+    match u16::from_str_radix(text, 8) {
+        Ok(mask) if mask <= 0o777 => mask,
+        _ => panic!("RAR_UMASK must be an octal number from 0 to 777"),
+    }
+}
 
 pub const INFO: SInfo = SInfo::const_parse(env!("RAR_EXEC_INFO_DISPLAY"));
 
@@ -396,13 +409,14 @@ where
     let uid = metadata.uid();
     let effective_uid = nix::unistd::Uid::effective();
 
-    // Changing the flags of a file requires to own it or CAP_FOWNER, its group does not matter
-    let caps = if effective_uid == nix::unistd::Uid::from_raw(uid) {
-        vec![Cap::LINUX_IMMUTABLE]
+    // Changing the flags of a file requires to own it or CAP_FOWNER, its group does not matter;
+    // the kernel makes no DAC check on the descriptor (vfs_fileattr_set)
+    let caps: &[Cap] = if effective_uid == nix::unistd::Uid::from_raw(uid) {
+        &[Cap::LINUX_IMMUTABLE]
     } else {
-        vec![Cap::LINUX_IMMUTABLE, Cap::FOWNER, Cap::DAC_OVERRIDE]
+        &[Cap::LINUX_IMMUTABLE, Cap::FOWNER]
     };
-    with_privileges(&caps, f)
+    with_privileges(caps, f)
 }
 
 pub(crate) fn is_immutable(file: &File) -> std::io::Result<bool> {
@@ -506,10 +520,17 @@ where
     Ok(res)
 }
 
-/// Reference every capabilities that lead to almost a direct privilege escalation
+/// Reference every capabilities that lead to almost a direct privilege escalation.
+///
+/// `CAP_BPF` counts with `CAP_PERFMON`: together they load the tracing programs of eBPF, which
+/// read the memory of the kernel and write the one of any process. `CAP_MAC_ADMIN` changes the
+/// policy of the LSM, and `CAP_MAC_OVERRIDE` bypasses it.
 #[must_use]
 pub fn capabilities_are_exploitable(caps: CapSet) -> bool {
     caps.has(Cap::SYS_ADMIN)
+        || (caps.has(Cap::BPF) && caps.has(Cap::PERFMON))
+        || caps.has(Cap::MAC_ADMIN)
+        || caps.has(Cap::MAC_OVERRIDE)
         || caps.has(Cap::SYS_PTRACE)
         || caps.has(Cap::SYS_MODULE)
         || caps.has(Cap::DAC_READ_SEARCH)
@@ -818,20 +839,61 @@ pub fn initialize_capabilities(cap: &[Cap]) -> Result<CapState, capctl::Error> {
     Ok(current)
 }
 
-/// Temporarily add capabilities to the effective set to perform an operation, then drop them again
+/// The effective set that [`with_privileges`] found, given back when the operation ends, also by a
+/// panic.
+struct FoundEffective {
+    found: CapSet,
+    given_back: bool,
+}
+
+impl FoundEffective {
+    fn raise(cap: &[Cap]) -> Result<Self, capctl::Error> {
+        let found = CapState::get_current()?.effective;
+        initialize_capabilities(cap)?;
+        Ok(Self {
+            found,
+            given_back: false,
+        })
+    }
+
+    /// What the operation raised leaves the effective set, and so does what the kernel raised
+    /// meanwhile (a change of the effective or the filesystem uid to 0). The capabilities that
+    /// were effective stay, those that a change of the uids took from the permitted set aside.
+    fn give_back(&mut self) -> Result<(), capctl::Error> {
+        self.given_back = true;
+        let mut current = CapState::get_current()?;
+        current.effective = self.found & current.permitted;
+        current.set_current()
+    }
+}
+
+impl Drop for FoundEffective {
+    fn drop(&mut self) {
+        if !self.given_back
+            && let Err(e) = self.give_back()
+        {
+            error!("Cannot drop the capabilities raised for an operation that panicked: {e}");
+            // never go on with them
+            std::process::abort();
+        }
+    }
+}
+
+/// Temporarily add capabilities to the effective set to perform an operation, then give back the
+/// effective set it had, even when the operation panics
 /// # Errors
 /// Returns an error if obtaining the current capability state fails,
 /// if adding the capabilities to the effective set fails,
 /// if setting the new capability state fails,
 /// if the operation fails,
-/// or if dropping the effective capabilities at the end
+/// or if giving back the effective set at the end fails
 pub fn with_privileges<F, R>(cap: &[Cap], f: F) -> std::io::Result<R>
 where
     F: FnOnce() -> std::io::Result<R>,
 {
-    let state = initialize_capabilities(cap)?;
+    let mut found = FoundEffective::raise(cap)?;
     let res = f();
-    stated_drop_effective(state)?;
+    found.give_back()?;
     res
 }
 
@@ -893,6 +955,10 @@ pub fn create_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<File> {
 /// # Errors
 /// Returns an error if the file cannot be opened with the required privileges,
 /// or if locking the file fails
+#[deprecated(
+    since = "4.3.0",
+    note = "follows symbolic links with CAP_DAC_READ_SEARCH, then CAP_DAC_OVERRIDE: open the file relative to a checked directory with O_NOFOLLOW instead"
+)]
 pub fn open_lock_with_privileges<P: AsRef<Path>>(
     p: P,
     options: &OpenOptions,
@@ -918,8 +984,31 @@ pub fn open_lock_with_privileges<P: AsRef<Path>>(
         .and_then(|file| Ok(nix::fcntl::Flock::lock(file, lock).map_err(|(_, e)| e)?))
 }
 
+/// Whether a CBOR reader is at the end of the file once the policy is read.
+///
+/// A JSON reader refuses what follows the value (`serde_json::Deserializer::end`); a CBOR one stopped after its first
+/// value and read a file that holds more (two policies put together, the end of a longer former
+/// content) up to there, without a word: it is refused the same.
+///
+/// # Errors
+/// `InvalidData` when bytes follow the value, or the error of the reader.
+pub fn cbor_at_end<'de, R: cbor4ii::core::dec::Read<'de>>(reader: &mut R) -> io::Result<()> {
+    match reader.fill(1) {
+        Ok(rest) if rest.as_ref().is_empty() => Ok(()),
+        Ok(_) => Err(io::Error::new(
+            ErrorKind::InvalidData,
+            "data after the end of the policy",
+        )),
+        Err(e) => Err(io::Error::new(ErrorKind::InvalidData, e.to_string())),
+    }
+}
+
 /// # Errors
 /// Returns an error if the file cannot be opened with the required privileges
+#[deprecated(
+    since = "4.3.0",
+    note = "follows symbolic links with CAP_DAC_READ_SEARCH, then CAP_DAC_OVERRIDE: open the file relative to a checked directory with O_NOFOLLOW instead"
+)]
 pub fn read_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<File> {
     debug!("Opening file {}", p.as_ref().display());
     std::fs::File::open(&p).or_else(|e| {
@@ -1271,6 +1360,20 @@ mod test {
         capset.add(Cap::MKNOD);
         assert!(capabilities_are_exploitable(capset));
         capset.clear();
+        capset.add(Cap::MAC_ADMIN);
+        assert!(capabilities_are_exploitable(capset));
+        capset.clear();
+        capset.add(Cap::MAC_OVERRIDE);
+        assert!(capabilities_are_exploitable(capset));
+        capset.clear();
+        capset.add(Cap::BPF);
+        assert!(!capabilities_are_exploitable(capset));
+        capset.add(Cap::PERFMON);
+        assert!(capabilities_are_exploitable(capset));
+        capset.clear();
+        capset.add(Cap::PERFMON);
+        assert!(!capabilities_are_exploitable(capset));
+        capset.clear();
         capset.add(Cap::WAKE_ALARM);
         assert!(!capabilities_are_exploitable(capset));
     }
@@ -1342,6 +1445,89 @@ mod test {
         );
     }
 
+    // What was effective stays, what the operation raised leaves the effective set, also after an
+    // error and a panic (as root, under `cargo test-root`)
+    #[test]
+    fn test_with_privileges_gives_back_the_effective_set() {
+        drop_effective().unwrap();
+        let effective = || CapState::get_current().unwrap().effective;
+        let mut permitted = CapState::get_current().unwrap().permitted.iter();
+        let (Some(held), Some(raised)) = (permitted.next(), permitted.next()) else {
+            eprintln!("Skipping test, requires two permitted capabilities");
+            return;
+        };
+        initialize_capabilities(&[held]).unwrap();
+        let found = CapSet::from_iter([held]);
+
+        let inside = with_privileges(&[raised], || Ok(effective())).unwrap();
+        assert_eq!(inside, CapSet::from_iter([held, raised]));
+        assert_eq!(effective(), found);
+
+        let failed = with_privileges(&[raised], || -> io::Result<()> {
+            Err(io::Error::other("the operation failed"))
+        });
+        assert!(failed.is_err());
+        assert_eq!(effective(), found);
+
+        let panicked = std::panic::catch_unwind(|| {
+            with_privileges(&[raised], || -> io::Result<()> {
+                panic!("the operation panicked")
+            })
+        });
+        assert!(panicked.is_err());
+        assert_eq!(effective(), found);
+        drop_effective().unwrap();
+    }
+
+    // The immutable flag of a file of another user takes CAP_FOWNER and CAP_LINUX_IMMUTABLE, no
+    // DAC capability (as root, under `cargo test-root`, on a file system with the flag)
+    #[test]
+    fn test_immutable_flag_of_another_owner() {
+        drop_effective().unwrap();
+        let permitted = CapState::get_current().unwrap().permitted;
+        if ![Cap::CHOWN, Cap::FOWNER, Cap::LINUX_IMMUTABLE]
+            .iter()
+            .all(|cap| permitted.has(*cap))
+        {
+            eprintln!("Skipping test, requires CAP_CHOWN, CAP_FOWNER and CAP_LINUX_IMMUTABLE");
+            return;
+        }
+        let path = std::env::temp_dir().join(format!(
+            "rar_test_immutable_other_owner_{}",
+            std::process::id()
+        ));
+        let mut file = File::create(&path).unwrap();
+        let _defer = defer(|| {
+            if let Ok(mut file) = File::open(&path)
+                && is_immutable(&file).unwrap_or(false)
+            {
+                let _ = unlock_immutable(&mut file);
+            }
+            let _ = with_privileges(&[Cap::FOWNER], || fs::remove_file(&path));
+        });
+        let other = nix::unistd::Uid::effective().as_raw() ^ 1;
+        with_privileges(&[Cap::CHOWN], || {
+            std::os::unix::fs::fchown(&file, Some(other), None)
+        })
+        .unwrap();
+
+        let mut flags = 0;
+        // SAFETY: FS_IOC_GETFLAGS writes an int through the pointer, `flags` is a valid and
+        // writable u32
+        assert!(unsafe { nix::libc::ioctl(file.as_raw_fd(), FS_IOC_GETFLAGS, &mut flags) } == 0);
+        let raised =
+            immutable_required_privileges(&file, || Ok(CapState::get_current().unwrap().effective))
+                .unwrap();
+        assert_eq!(
+            raised,
+            CapSet::from_iter([Cap::LINUX_IMMUTABLE, Cap::FOWNER])
+        );
+        lock_immutable(&mut file, flags | FS_IMMUTABLE_FL).unwrap();
+        assert!(is_immutable(&file).unwrap());
+        unlock_immutable(&mut file).unwrap();
+        assert!(!is_immutable(&file).unwrap());
+    }
+
     #[test]
     fn test_convert_string_to_duration() {
         let duration = convert_string_to_duration("01:30:00");
@@ -1357,5 +1543,28 @@ mod test {
         assert!(convert_string_to_duration("xx:30:00").is_err());
         assert!(convert_string_to_duration("01:xx:00").is_err());
         assert!(convert_string_to_duration("01:30:xx").is_err());
+    }
+
+    // RAR_UMASK is written in octal, like the umask option of a policy; it was read as a decimal
+    // number, and "0022" gave 0o026
+    #[test]
+    fn test_umask_build_value_is_octal() {
+        assert_eq!(octal_umask("0022"), 0o022);
+        assert_eq!(octal_umask("077"), 0o077);
+        assert_eq!(octal_umask("0"), 0);
+        assert_eq!(octal_umask("777"), 0o777);
+        assert_eq!(UMASK.0, u16::from_str_radix(env!("RAR_UMASK"), 8).unwrap());
+    }
+
+    #[test]
+    #[should_panic(expected = "RAR_UMASK must be an octal number from 0 to 777")]
+    fn test_umask_build_value_refuses_decimal_digits() {
+        let _ = octal_umask("0099");
+    }
+
+    #[test]
+    #[should_panic(expected = "RAR_UMASK must be an octal number from 0 to 777")]
+    fn test_umask_build_value_refuses_more_than_777() {
+        let _ = octal_umask("1000");
     }
 }

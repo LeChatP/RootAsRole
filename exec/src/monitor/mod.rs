@@ -1,3 +1,18 @@
+//! The monitor, between the runner and the command, adapted from sudo-rs
+//! (`src/exec/use_pty/monitor.rs`).
+//!
+//! Where it differs from sudo-rs, and why:
+//! - the command runs the pre-exec steps of an [`Orchestrator`] (credentials, capabilities,
+//!   workdir...) before its exec.
+//! - in the foreground, the command checks once that the pty is in its process group, and warns
+//!   otherwise, where sudo-rs waits for it: a command that reads the pty before the monitor gives
+//!   it is stopped by `SIGTTIN`, and the runner resumes it in the foreground.
+//! - the exit status is sent as soon as `SIGCHLD` reports it; after the red light, the monitor
+//!   gives the pty back to its own group and terminates what is left of the command, where sudo-rs
+//!   terminates first and sends the status after.
+//! - a signal goes to the process group of the command, as in sudo-rs, with `CAP_KILL` when the
+//!   command runs as another user (see `crate::signal::signal_child`).
+
 use std::io::{self, Write};
 use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::process::CommandExt;
@@ -6,7 +21,10 @@ use std::process::Command;
 use crate::event::{EventRegistry, PollEvent, Process};
 use crate::orchestrator::{Orchestrator, PreExecContext};
 use crate::pty::PtyFollower;
-use crate::signal::{SignalInfo, SignalStream, register_signal_handler, terminate_process};
+use crate::signal::{
+    SignalInfo, SignalStream, give_signals_to_the_command, register_signal_handler, signal_child,
+    terminate_child,
+};
 use crate::terminal::{ProcessId, TerminalExt};
 use libc::SIGCHLD;
 use log::{debug, error, trace, warn};
@@ -95,12 +113,15 @@ impl Process for MonitorClosure {
                     Ok(MonitorMessage::Signal(sig)) => {
                         debug!("monitor: signal from parent {sig}");
                         if is_forward_signal_allowed(sig) {
+                            // the command is the child of the monitor, not reaped while it is set;
+                            // the signal goes to its process group, as in sudo-rs
+                            // (exec/use_pty/monitor.rs, send_signal): `sh -c 'a | b'` ends with
+                            // `a` and `b`, which kept the pty otherwise
                             if let Some(pid) = self.command_pid {
                                 if sig == libc::SIGALRM {
-                                    terminate_process(pid, false);
-                                } else {
-                                    // SAFETY: kill does not access memory, it only sends a signal to the command
-                                    unsafe { libc::kill(pid, sig) };
+                                    terminate_child(pid, false);
+                                } else if let Err(e) = signal_child(pid, sig, true) {
+                                    warn!("monitor: cannot forward signal {sig}: {e}");
                                 }
                             }
                         } else {
@@ -196,10 +217,9 @@ impl MonitorClosure {
             if is_forward_signal_allowed(info.signal) {
                 debug!("monitor: forwarding signal {}", info.signal);
                 if info.signal == libc::SIGALRM {
-                    terminate_process(pid, false);
-                } else {
-                    // SAFETY: kill does not access memory, it only sends a signal to the command
-                    unsafe { libc::kill(pid, info.signal) };
+                    terminate_child(pid, false);
+                } else if let Err(e) = signal_child(pid, info.signal, true) {
+                    warn!("monitor: cannot forward signal {}: {e}", info.signal);
                 }
             }
         }
@@ -236,6 +256,7 @@ pub fn exec_monitor_process(
     orchestrator: Orchestrator,
     mut backchannel: Backchannel,
     original_set: Option<&libc::sigset_t>,
+    ignored: u64,
     foreground: bool,
 ) -> io::Result<()> {
     debug!("monitor: starting (foreground={foreground})");
@@ -292,11 +313,8 @@ pub fn exec_monitor_process(
     if pid == 0 {
         drop(err_reader); // Close reader end in child
 
-        // Restore default signal handlers
-        for sig in 1..32 {
-            // SAFETY: restoring the default disposition does not install any handler code
-            unsafe { libc::signal(sig, libc::SIG_DFL) };
-        }
+        // the signals that the caller ignores stay ignored, the others get their default action
+        give_signals_to_the_command(ignored);
 
         // Restore signal mask
         let set: libc::sigset_t = original_set.map_or_else(
@@ -431,7 +449,7 @@ pub fn exec_monitor_process(
 
     // Cleanup: the command still runs although the monitor is done (the runner is gone)
     if let Some(pid) = monitor.command_pid {
-        terminate_process(pid, true);
+        terminate_child(pid, true);
         let mut status = 0;
         // SAFETY: waitpid only writes the exit status through a pointer to a local integer
         unsafe { libc::waitpid(pid, &raw mut status, 0) };

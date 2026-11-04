@@ -101,6 +101,8 @@ chsr r sys-admin grant -g sys-admin
 
 `grant -u alice` would grant a user instead. `-g` also accepts a combination of groups, `-g webadmin,staff`: the user must then be a member of all of them. `revoke` takes the same arguments.
 
+A user or a group can also be given by its id, like `grant -u 1000`: `chsr` writes it as a number. In a file that you write by hand, a string of digits like `"1000"` is an id too, for users as for groups, since `useradd` and `groupadd` refuse such names.
+
 ### 3. Tasks and their purpose
 
 A task is created inside its role. Give it a purpose: in six months, the purpose is what tells you why this task exists.
@@ -272,13 +274,15 @@ chsr editor                    # default.json, like the other commands
 chsr editor monitoring.json    # another file of the policy
 ```
 
-Without a path, it opens the same file as the other commands: `default.json` of a policy directory, or the only file. With a path or a name, it opens that file of the policy, like `chsr file`. To change where the policy is stored, give the path of the root file, `/etc/security/rootasrole.json`.
+Without a path, it opens the same file as the other commands: `default.json` of a policy directory, or the only file. With a path or a name, it opens that file of the policy, like `chsr file`. To change where the policy is stored, give the path of the root file, `/etc/security/rootasrole.json`. Before saving it, `chsr` checks that the new `storage` names a policy that loads in its format, so that `dosr` is never left without a policy.
 
-`chsr` copies the file into a private temporary folder in `/tmp` and starts the editor on the copy. When you quit the editor, `chsr` reads the result and validates it. If it is invalid, `chsr` tells why, and you continue editing or abort. If it is valid, `chsr` shows the resulting configuration and asks for a confirmation before saving it.
+`chsr` copies the file into a private temporary folder in `/run/chsr`, removed at the end, and starts the editor on the copy. When you quit the editor, `chsr` reads the result and validates it. If it is invalid, `chsr` tells why, and you continue editing or abort. If it is valid, `chsr` shows the resulting configuration and asks for a confirmation before saving it. Without an answer, for example when the input of `chsr` ends, nothing is saved.
 
-The editor is one of the editors chosen when RootAsRole was built (`/usr/bin/vim` by default). The `RAR_EDITOR` variable can select another one, but only among them. `vim` is started without your `vimrc` and without plugins, since they could run anything with the privileges of `chsr`.
+The copy has no `version`: `chsr` writes it when it saves. If you paste a policy with the `version` of an older release, `chsr` migrates it from that version and shows the result before the confirmation. A version that `chsr` does not know is refused.
 
-Before starting the editor, `chsr` restricts itself with Landlock: the editor can only reach the policy files, its temporary folder, and the files that it needs to run. On a kernel without Landlock, `chsr` refuses to start the editor.
+The editor is one of the editors chosen when RootAsRole was built: vim, nano, emacs, joe and micro by default. `chsr` takes the one that `/usr/bin/editor` points to (update-alternatives on Debian and Ubuntu) when it is one of them, otherwise the first one installed. The `RAR_EDITOR` variable can select another one, but only among them, and the default environment of `dosr` removes it: the task of `chsr` must keep it. No editor loads your configuration or your plugins, since they could run anything with the privileges of `chsr`.
+
+Before starting the editor, `chsr` restricts itself with Landlock: it can only write the policy files and its temporary folder. The editor is restricted further. It can only write its temporary folder, so it cannot save over the policy behind the back of `chsr`, and it can only run itself, so a shell escape like `:!sh` in vim starts nothing. A seccomp filter also refuses the privileged system calls that no editor needs, like `ptrace`, `mount` or loading a kernel module. On a kernel without Landlock, `chsr` refuses to start the editor. All of this is defense in depth: whoever runs `chsr editor` is still root-equivalent.
 
 <blockquote class="caroot-stare">
 Read the resulting configuration before you answer yes: what <code>chsr</code> saves is what it understood, not what you typed.
@@ -288,15 +292,25 @@ Read the resulting configuration before you answer yes: what <code>chsr</code> s
 
 A new version of RootAsRole may change how the policy is written. After an upgrade, `chsr upgrade` rewrites the policy files in the format of the installed version. Packages run it for you during their updates.
 
+This is not optional: the same words may mean something else from one version to another. So `dosr` refuses a policy file written before 4.1.0, written by a newer version, or without a `version`, and writes the reason in the log.
+
 ```bash
 chsr upgrade --check
 ```
 
 `--check` only shows what would be upgraded, and fails if any file needs it: it is the right command for a script or a monitoring check.
 
+Going back to an older version needs the same care, the other way. Before installing it, write the policy for it:
+
+```bash
+chsr upgrade --to 4.1.0
+```
+
+`chsr` writes every policy file for that version, and changes what that version would read with another meaning. With `--check`, it writes nothing. For a version older than 4.1.0, the installed `dosr` refuses the files written this way until the older version is installed.
+
 ## File Format Conversion
 
-`chsr convert` converts the policy between JSON and CBOR. JSON is easy to read and to review. CBOR is a binary format, much faster to load: when your policy is ready, you can convert it.
+`chsr convert` converts the policy between JSON and CBOR. JSON is easy to read and to review. CBOR is a binary format, much faster to load: when your policy is ready, you can convert it. In CBOR, `chsr` writes each key of the policy with one character, which makes the file smaller. `dosr` and `chsr` read both the short and the long keys, in both formats, but `dosr` 4.2.0 does not: before going back to it with a CBOR policy, run `chsr upgrade --to 4.2.0`.
 
 ```text
 chsr convert [-r] [--from <type> <file>] <type> <file>

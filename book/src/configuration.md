@@ -88,7 +88,7 @@ The data is split into two parts: the **root file**, which tells RaR where the p
 
 ```json
 {
-  "version": "4.2.0",
+  "version": "4.3.0",
   "storage": {
     "method": "json",
     "settings": {
@@ -99,7 +99,7 @@ The data is split into two parts: the **root file**, which tells RaR where the p
 }
 ```
 
-- `version`: policy schema version written by tooling. It is mainly used to facilitate migrations during upgrades.
+- `version`: policy schema version written by tooling. It is mainly used to facilitate migrations during upgrades. It is mandatory for `dosr`.
 - `storage`: describes where the policy data is stored.
 - `method`: can be `json` or `cbor`. To migrate from one format to another, use the `chsr convert` command. See [File Format Conversion](cli/chsr.md#file-format-conversion) for more details.
 - `settings`: parameters of the storage method. JSON and CBOR are both file-based, so they have a `path` parameter. If `path` points to the root file itself, the roles declared directly in the root file are used. Otherwise, the policy files found at `path` are loaded.
@@ -109,7 +109,7 @@ For the WebOps team, the policy will be stored in `/etc/security/rootasrole.d/de
 
 ```json
 {
-  "version": "4.2.0",
+  "version": "4.3.0",
   "options": { },
   "roles": [ ]
 }
@@ -523,7 +523,7 @@ This option works, again, like mathematical sets, with `add` and `sub` (alias `d
 - `delete`: start from an empty list and add directories. This is the recommended mode.
 - `keep-safe`: start from the caller's `PATH`, and remove relative paths (such as `.` or `bin`). Absolute directories are kept as is, even if they are writable by the caller.
 - `keep-unsafe`: start from the caller's `PATH` as is. Avoid it. We use it only for development purposes.
-- `inherit`: use the mode of the level above.
+- `inherit`: use the mode of the level above. Note that if the field is not specified, it inherits the mode of the level above, `add` and `sub` lists are union with upper levels ones.
 
 Some details: in `delete` mode, the caller's `PATH` is not used at all. A relative directory is the working directory of the command, which the caller chooses, so except for `keep-unsafe`, relative directories are removed, from the caller's `PATH` as from the `add` lists of the policy (the ones of the policy are written in the log). The directories of the policy come first, then the ones of the caller; the `sub` list is removed, and each directory appears once. Whether a directory exists is not checked. If the resulting list is empty, then the PATH variable is not set at all, meaning that the user must type the full path of the command to run it.
 
@@ -577,27 +577,31 @@ This utility addresses differences in pattern syntax and list inheritance:
 * It updates legacy global `delete` definitions containing the old 6-entry default to the current, expanded default set.
 * To ensure existing security profiles do not change under the new inheritance model, it injects explicit `"keep": []` and `"check": []` into legacy `delete`-mode levels that left them undefined.
 
-Tasks still using unmigrated regular expressions are rejected by `dosr` at runtime until the upgrade has been completed.
+Tasks still using unmigrated configurations are rejected by `dosr` at runtime until the upgrade has been completed.
 
 ### Migrating configurations from version 4.1
 
-No migration is needed from version 4.1 to 4.2.0. However, downgrading from 4.2.0 to 4.1:
+No migration is needed from version 4.1 to 4.2.0. However, downgrading from 4.2.0 to 4.1 using `chsr upgrade --to 4.1.0` is possible, but it will:
 
 * removes the new `password` and `tty` options, and the `from` field of `setgid`;
 * writes a regular expression with a top-level alternation, like `^start|stop$`, as `^(?:start|stop)$`, so that 4.1 does not allow more.
 
-Note that 4.1 gives the caller's groups to a task that changes the user, whatever the policy says.
+Note that 4.1 gives the caller's groups to a task that changes the user, whatever the policy says. Do the policy migration before switching to a version.
+
+<blockquote class="caroot">
+So with these two versions, we've seen how upgrading and downgrading work.
+</blockquote>
 
 ## Hierarchy and separation of duty
 
 Hierarchy and separation of duty (SoD) are designed as plugins on top of the core RBAC-0 model. They are not part of the core model, but they are implemented in the RaR project.
 
-- The **hierarchy** plugin lets a role declare its parent roles, through the `parents` field. The role inherits the tasks of its parents.
-- The **static separation of duty** plugin declares conflicting roles, through the `ssd` field: a user should never be an actor of two conflicting roles.
+- The **hierarchy** plugin lets a role declare its parent roles, through the `parents` field. The role inherits the tasks of its parents extensively (every grandparent too).
+- The **static separation of duty** plugin declares conflicting roles, through the `ssd` field: a user should never be an actor of two conflicting roles. It will break role hierarchy if separation of duty appears in the hierarchy.
 
-When the lookup of an actor fails, for example a directory service that does not answer, `dosr` cannot know whether the user holds the conflicting role: it then disables every role with an `ssd` field in that policy file, and writes the failure in the log.
+When the lookup of an actor fails, for example a directory service that does not answer, `dosr` cannot know whether the user holds the conflicting role: it then disables every role involved with an separation of duty, and writes the failure in the log.
 
-Note that A role that is in conflict with one of its parents is invalid, because it would inherit the parent's tasks and thus be in conflict with itself.
+Note that a role that is in conflict with one of its parents is invalid, because it would inherit the parent's tasks and thus be in conflict with itself.
 
 ### Applying it to WebOps
 
@@ -624,10 +628,6 @@ The incident also taught the team that bob's account is the most exposed one: it
 ```
 
 ### Conflict resolution
-
-<blockquote class="caroot">
-There are currently some issues on the combination of role hierarchy and static separation of duties.
-</blockquote>
 
 Both plugins have fail-safe behaviors:
 
@@ -662,7 +662,7 @@ Here is the resulting `/etc/security/rootasrole.d/default.json`:
 
 ```json
 {
-  "version": "4.2.0",
+  "version": "4.3.0",
   "options": {
     "path": {
       "default": "delete",

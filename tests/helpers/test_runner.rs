@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use bon::bon;
+use rootasrole_core::PACKAGE_VERSION;
 use rootasrole_core::database::versionning::Versioning;
 use rootasrole_core::file::{LockedSettingsFile, RootSettings};
 use rootasrole_core::util::{RAR_CFG_TYPE, StorageMethod};
@@ -99,12 +100,14 @@ impl TestRunner {
         if let Some(data_path) = rar_cfg_data_path {
             let mut settings_file: LockedSettingsFile<Versioning<RootSettings>> =
                 LockedSettingsFile::open_write(self.rar_cfg_path.clone(), |_, file| {
-                    let settings: Versioning<RootSettings> = match self.rar_cfg_type {
+                    let mut settings: Versioning<RootSettings> = match self.rar_cfg_type {
                         StorageMethod::JSON => serde_json::from_reader(file).unwrap_or_default(),
                         StorageMethod::CBOR => {
                             cbor4ii::serde::from_reader(BufReader::new(file)).unwrap_or_default()
                         }
                     };
+                    // written by this version: dosr refuses a policy of another version
+                    settings.version = PACKAGE_VERSION;
                     Ok(settings)
                 })?;
             settings_file
@@ -120,12 +123,14 @@ impl TestRunner {
         } else {
             let mut settings_file: LockedSettingsFile<Versioning<RootSettings>> =
                 LockedSettingsFile::open_write(self.rar_cfg_path.clone(), |_, file| {
-                    let settings: Versioning<RootSettings> = match self.rar_cfg_type {
+                    let mut settings: Versioning<RootSettings> = match self.rar_cfg_type {
                         StorageMethod::JSON => serde_json::from_reader(file).unwrap_or_default(),
                         StorageMethod::CBOR => {
                             cbor4ii::serde::from_reader(BufReader::new(file)).unwrap_or_default()
                         }
                     };
+                    // written by this version: dosr refuses a policy of another version
+                    settings.version = PACKAGE_VERSION;
                     Ok(settings)
                 })?;
             settings_file

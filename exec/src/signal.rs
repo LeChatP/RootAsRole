@@ -1,3 +1,13 @@
+//! The signals of the runner and the monitor, adapted from sudo-rs (`src/system/signal/`).
+//!
+//! Where it differs from sudo-rs, and why:
+//! - the handler writes a [`SignalInfo`] of 16 bytes into a non-blocking pipe, where sudo-rs
+//!   writes the whole `siginfo_t` into a socket pair: a frame is smaller than `PIPE_BUF`, so each
+//!   write is atomic, and the event loop reads every frame until `EWOULDBLOCK`.
+//! - [`signal_child`] raises `CAP_KILL` for one call when a signal to the command is refused:
+//!   dosr runs with the uids of its caller and file capabilities, where the monitor of sudo runs
+//!   as root.
+
 use std::{
     io,
     os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd},
@@ -229,6 +239,104 @@ pub fn register_signal_handler(signal: SignalNumber) -> io::Result<()> {
     Ok(())
 }
 
+/// The signals that the caller of the runner ignores, as a mask (bit `n - 1` for signal `n`).
+///
+/// The command gets them ignored too, as without the runner: `nohup` ignores SIGHUP, a script SIGINT
+/// and SIGQUIT for its background jobs (sudo-rs `SignalsState`, sudo). Read before the runner
+/// sets its own handlers. SIGPIPE is left out: Rust ignores it before `main`, so what the caller
+/// wanted is not known, and the command gets its default action, as from `std::process`.
+#[must_use]
+pub fn ignored_by_the_caller() -> u64 {
+    let mut ignored = 0;
+    for signal in 1..32 {
+        if matches!(signal, libc::SIGPIPE | libc::SIGKILL | libc::SIGSTOP) {
+            continue;
+        }
+        // SAFETY: sigaction is a plain C struct, for which all zeroes is a valid value
+        let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+        // SAFETY: a null new action only reads the current one into `action`, which outlives the call
+        let read = unsafe { libc::sigaction(signal, std::ptr::null(), &raw mut action) };
+        if read == 0 && action.sa_sigaction == libc::SIG_IGN {
+            ignored |= 1 << (signal - 1);
+        }
+    }
+    ignored
+}
+
+/// In the child, before the exec: the signals of `ignored` ignored, every other one with its
+/// default action. Only `sigaction`, which is async-signal-safe.
+pub fn give_signals_to_the_command(ignored: u64) {
+    for signal in 1..32 {
+        // SAFETY: sigaction is a plain C struct, for which all zeroes is a valid value
+        let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+        action.sa_sigaction = if ignored >> (signal - 1) & 1 == 1 {
+            libc::SIG_IGN
+        } else {
+            libc::SIG_DFL
+        };
+        // SAFETY: SIG_IGN and SIG_DFL install no handler code; SIGKILL and SIGSTOP are refused
+        // (EINVAL), which leaves them as they are
+        unsafe { libc::sigaction(signal, &raw const action, std::ptr::null_mut()) };
+    }
+}
+
+/// Send `signal` to `pid`, a child of this process that is not reaped yet, or to its process
+/// group (whose id is `pid`) with `process_group`.
+///
+/// The runner may run with the uids of its caller and file capabilities, as dosr does: a command
+/// that runs as root or as another user does not take its signals (`EPERM`), where the monitor of
+/// sudo runs as root. `CAP_KILL` is then raised for this call only, when it is permitted, and
+/// dropped after. Only for a child that is not reaped: until then its pid, and the id of its
+/// group, cannot be another process's.
+///
+/// # Errors
+/// The error of `kill(2)`, or `EINVAL` for a pid that is not positive (`kill(0)` would signal
+/// the group of the runner, `kill(-1)` every process it may signal).
+pub fn signal_child(pid: libc::pid_t, signal: libc::c_int, process_group: bool) -> io::Result<()> {
+    if pid <= 0 {
+        return Err(io::Error::from_raw_os_error(libc::EINVAL));
+    }
+    let send = || {
+        // SAFETY: kill and killpg do not access memory, they only send a signal
+        let sent = unsafe {
+            if process_group {
+                libc::killpg(pid, signal)
+            } else {
+                libc::kill(pid, signal)
+            }
+        };
+        if sent == 0 {
+            Ok(())
+        } else {
+            Err(io::Error::last_os_error())
+        }
+    };
+    match send() {
+        Err(e) if e.raw_os_error() == Some(libc::EPERM) => with_cap_kill(send).unwrap_or(Err(e)),
+        sent => sent,
+    }
+}
+
+/// Run `send` with `CAP_KILL` in the effective set, `None` when it is not permitted. The effective
+/// set is given back after it, or the process aborts: it never goes on with `CAP_KILL`.
+fn with_cap_kill(send: impl FnOnce() -> io::Result<()>) -> Option<io::Result<()>> {
+    use capctl::{Cap, CapState};
+    let mut state = CapState::get_current().ok()?;
+    if !state.permitted.has(Cap::KILL) {
+        return None;
+    }
+    let effective = state.effective;
+    state.effective.add(Cap::KILL);
+    state.set_current().ok()?;
+    let sent = send();
+    state.effective = effective;
+    if let Err(e) = state.set_current() {
+        log::error!("cannot drop CAP_KILL after a signal to the command: {e}");
+        std::process::abort();
+    }
+    Some(sent)
+}
+
 /// How long a command is given to end after `SIGHUP` and `SIGTERM`, before `SIGKILL`, like sudo.
 pub const TERMINATION_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
 
@@ -242,16 +350,33 @@ pub fn terminate_process(pid: libc::pid_t, process_group: bool) {
     if pid <= 0 {
         return;
     }
-    let send = |signal| {
+    terminate(|signal| {
         // SAFETY: kill and killpg do not access memory, they only send a signal
         unsafe {
             if process_group {
-                libc::killpg(pid, signal)
+                libc::killpg(pid, signal);
             } else {
-                libc::kill(pid, signal)
+                libc::kill(pid, signal);
             }
-        };
-    };
+        }
+    });
+}
+
+/// [`terminate_process`] for a child that is not reaped yet, with the signals of
+/// [`signal_child`]: a command that runs as another user is ended too.
+pub fn terminate_child(pid: libc::pid_t, process_group: bool) {
+    if pid <= 0 {
+        return;
+    }
+    terminate(|signal| {
+        if let Err(e) = signal_child(pid, signal, process_group) {
+            log::debug!("cannot send signal {signal} to the command {pid}: {e}");
+        }
+    });
+}
+
+/// `SIGHUP`, `SIGTERM`, then `SIGKILL` once [`TERMINATION_DELAY`] has passed.
+fn terminate(send: impl Fn(libc::c_int)) {
     send(libc::SIGHUP);
     send(libc::SIGTERM);
     std::thread::sleep(TERMINATION_DELAY);
@@ -304,6 +429,38 @@ mod tests {
             "the shell ended on its own: {status:?}"
         );
         assert!(cleaned, "the shell cleaned up");
+    }
+
+    // a process of another user (init) takes no signal from the runner without CAP_KILL; with it
+    // permitted, the signal goes, and the effective set is given back after (signal 0 only checks)
+    #[test]
+    fn signal_child_raises_cap_kill_for_the_call_only() {
+        use capctl::{Cap, CapState};
+        // the effective set empty, as dosr runs: with CAP_KILL only permitted (a VM, as a user
+        // with the ambient capability kill), the call has to raise it
+        let mut state = CapState::get_current().unwrap();
+        state.effective.clear();
+        state.set_current().unwrap();
+        let before = CapState::get_current().unwrap();
+        let sent = signal::signal_child(1, 0, false);
+        if before.permitted.has(Cap::KILL) {
+            sent.unwrap();
+        } else {
+            assert_eq!(sent.unwrap_err().raw_os_error(), Some(libc::EPERM));
+        }
+        assert_eq!(CapState::get_current().unwrap(), before);
+        assert_eq!(
+            signal::signal_child(0, libc::SIGTERM, false)
+                .unwrap_err()
+                .raw_os_error(),
+            Some(libc::EINVAL)
+        );
+        assert_eq!(
+            signal::signal_child(-1, libc::SIGTERM, true)
+                .unwrap_err()
+                .raw_os_error(),
+            Some(libc::EINVAL)
+        );
     }
 
     // A command that ignores SIGHUP and SIGTERM is killed once the delay has passed.

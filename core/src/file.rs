@@ -15,19 +15,20 @@ use capctl::Cap;
 use log::{debug, error, warn};
 use nix::fcntl::Flock;
 use semver::Version;
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize, Serializer, de::DeserializeOwned, ser::SerializeMap};
 
 use crate::{
-    SettingsContent,
+    PACKAGE_VERSION, SettingsContent,
     database::{
         migration::{Migration, MigrationError},
-        migrations::{DocumentMigration, migrate_document},
+        migrations::{DocumentMigration, migrate_document, migrate_document_to, writable_version},
+        ser::field,
         structs::SPolicy,
-        versionning::Versioning,
+        versionning::{VersionedData, Versioning},
     },
     util::{
-        RAR_CFG_IMMUTABLE, RAR_CFG_PATH, RAR_CFG_TYPE, StorageMethod, has_privileges, is_immutable,
-        open_lock_with_privileges, read_with_privileges, with_mutable_config, write_config,
+        RAR_CFG_IMMUTABLE, RAR_CFG_PATH, RAR_CFG_TYPE, StorageMethod, cbor_at_end, has_privileges,
+        is_immutable, with_mutable_config, write_config,
     },
 };
 
@@ -40,10 +41,17 @@ fn read_document(method: StorageMethod, file: &File) -> io::Result<serde_json::V
             debug!("Failed to read the document: {e}");
             io::Error::new(io::ErrorKind::InvalidData, e)
         }),
-        StorageMethod::CBOR => cbor4ii::serde::from_reader(BufReader::new(file)).map_err(|e| {
-            debug!("Failed to read the document: {e}");
-            io::Error::new(io::ErrorKind::InvalidData, e)
-        }),
+        StorageMethod::CBOR => {
+            let mut reader = cbor4ii::core::utils::IoReader::new(BufReader::new(file));
+            let document =
+                serde_json::Value::deserialize(&mut cbor4ii::serde::Deserializer::new(&mut reader))
+                    .map_err(|e| {
+                        debug!("Failed to read the document: {e}");
+                        io::Error::new(io::ErrorKind::InvalidData, e)
+                    })?;
+            cbor_at_end(&mut reader).inspect_err(|e| debug!("Failed to read the document: {e}"))?;
+            Ok(document)
+        }
     }
 }
 pub const POLICY_MIGRATIONS: &[Migration<Rc<RefCell<SPolicy>>>] = &[];
@@ -108,7 +116,11 @@ impl<T: Serialize + DeserializeOwned + Debug + Default> LockedSettingsFile<T> {
         S: AsRef<Path>,
     {
         let load_data = || -> io::Result<Self> {
-            let file = open_lock_with_privileges(
+            #[expect(
+                deprecated,
+                reason = "the root file and the policy files, at paths that the build or the administrator chose"
+            )]
+            let file = crate::util::open_lock_with_privileges(
                 path.as_ref(),
                 options,
                 nix::fcntl::FlockArg::LockExclusive,
@@ -125,7 +137,8 @@ impl<T: Serialize + DeserializeOwned + Debug + Default> LockedSettingsFile<T> {
         };
 
         if write && path.as_ref().exists() {
-            let mut file = read_with_privileges(&path)?;
+            #[expect(deprecated, reason = "the same file as load_data")]
+            let mut file = crate::util::read_with_privileges(&path)?;
             if is_immutable(&file)? {
                 return with_mutable_config(&mut file, |_| load_data());
             }
@@ -145,41 +158,105 @@ impl<T: Serialize + DeserializeOwned + Debug + Default> LockedSettingsFile<T> {
     /// Returns an error if the file cannot be written
     /// due to a lock, permission error or writing error
     pub fn save(&mut self, method: StorageMethod, immutable: bool) -> Result<(), Box<dyn Error>> {
-        let immuable = immutable && has_privileges(&[Cap::LINUX_IMMUTABLE])?;
-        debug!("Settings file immutable: {immuable}");
-        if immuable {
-            debug!("Toggling immutable off for config file");
-            with_mutable_config(&mut self.fd, |file| {
-                debug!("Toggled immutable off for config file");
-                file.rewind()?;
-                file.set_len(0)?;
-                write_config(&self.data, file, method)
-            })
-            .map_err(|e| format!("Failed to write config file: {e}"))?;
-        } else {
-            let file = &mut *self.fd;
-            debug!("Writing config file");
-            file.rewind()?;
-            debug!("Rewound config file for writing");
-            file.set_len(0)?;
-            debug!("Truncated config file");
-            write_config(&self.data, file, method)?;
-            // clear the rest of the file if any
-            debug!("Wrote config file");
-        }
+        write_locked(&mut self.fd, &self.data, method, immutable)?;
         self.migration = None;
         self.saved = serde_json::to_value(&self.data).ok();
 
         Ok(())
     }
+
+    /// The document of the data, as the file holds it in the format `method`: with the short keys
+    /// and the compact values of CBOR, which the migrations read like in a loaded file.
+    fn document(&self, method: StorageMethod) -> Result<serde_json::Value, Box<dyn Error>> {
+        Ok(match method {
+            StorageMethod::JSON => serde_json::to_value(&self.data)?,
+            StorageMethod::CBOR => {
+                cbor4ii::serde::from_slice(&cbor4ii::serde::to_vec(Vec::new(), &self.data)?)?
+            }
+        })
+    }
+
+    /// Write `document` in the file instead of the data: the file then holds another version than
+    /// the data, which the next save writes again.
+    fn save_document(
+        &mut self,
+        document: &serde_json::Value,
+        method: StorageMethod,
+        immutable: bool,
+    ) -> Result<(), Box<dyn Error>> {
+        write_locked(&mut self.fd, document, method, immutable)?;
+        self.migration = None;
+        self.saved = None;
+        Ok(())
+    }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default, Builder, PartialEq, Eq)]
+/// Replace the content of the locked file `fd` by `data`, in the format `method`.
+fn write_locked(
+    fd: &mut Flock<File>,
+    data: &impl Serialize,
+    method: StorageMethod,
+    immutable: bool,
+) -> Result<(), Box<dyn Error>> {
+    let immuable = immutable && has_privileges(&[Cap::LINUX_IMMUTABLE])?;
+    debug!("Settings file immutable: {immuable}");
+    if immuable {
+        debug!("Toggling immutable off for config file");
+        with_mutable_config(fd, |file| {
+            debug!("Toggled immutable off for config file");
+            file.rewind()?;
+            file.set_len(0)?;
+            write_config(data, file, method)
+        })
+        .map_err(|e| format!("Failed to write config file: {e}"))?;
+    } else {
+        let file = &mut **fd;
+        debug!("Writing config file");
+        file.rewind()?;
+        debug!("Rewound config file for writing");
+        file.set_len(0)?;
+        debug!("Truncated config file");
+        write_config(data, file, method)?;
+        debug!("Wrote config file");
+    }
+    Ok(())
+}
+
+#[derive(Deserialize, Debug, Clone, Default, Builder, PartialEq, Eq)]
 pub struct RootSettings {
+    #[serde(alias = "s")]
     pub storage: SettingsContent,
     #[serde(flatten)]
     #[builder(default)]
     pub config: Rc<RefCell<SPolicy>>,
+}
+
+impl VersionedData for RootSettings {
+    fn serialize_entries<M: SerializeMap>(
+        &self,
+        map: &mut M,
+        human_readable: bool,
+    ) -> Result<(), M::Error> {
+        map.serialize_entry(field(human_readable, "storage", "s"), &self.storage)?;
+        self.config.serialize_entries(map, human_readable)
+    }
+}
+
+impl Serialize for RootSettings {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let human_readable = serializer.is_human_readable();
+        let mut map = serializer.serialize_map(None)?;
+        self.serialize_entries(&mut map, human_readable)?;
+        map.end()
+    }
+}
+
+/// A loaded file written for an older version by [`FileSettings::write_for`].
+#[derive(Debug)]
+pub struct FileDowngrade {
+    pub path: PathBuf,
+    /// What changes from the loaded version, or why the file cannot be written for that version.
+    pub result: Result<DocumentMigration, String>,
 }
 
 /// The version of a loaded file.
@@ -190,6 +267,86 @@ pub struct FileVersion<'a> {
     pub version: &'a Version,
     /// The migration applied when the file was loaded, if it was not saved since.
     pub migration: Option<&'a DocumentMigration>,
+}
+
+/// The policy that the storage settings of the root file `root_path` name, when it is not the
+/// root file itself: the path that they give, else the data path, like dosr reads it. A root file
+/// that names itself holds the policy (`chsr convert -r json <root file>`): the data path was
+/// loaded instead, and edited while dosr read the root file.
+fn named_policy(root_path: &Path, data_path: &Path, storage: &SettingsContent) -> Option<PathBuf> {
+    let path = storage
+        .settings
+        .as_ref()
+        .and_then(|settings| settings.path.as_deref())
+        .unwrap_or(data_path);
+    (path != root_path).then(|| path.to_path_buf())
+}
+
+/// Whether the policy at `path` loads in the format `method`, without locking it (this process
+/// may hold the lock): the file, or every file of the directory, which holds one at least.
+fn check_policy_at(path: &Path, method: StorageMethod) -> Result<(), String> {
+    let files = if path.is_dir() {
+        let files: Vec<PathBuf> = std::fs::read_dir(path)
+            .map_err(|e| format!("{}: {e}", path.display()))?
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
+            .map(|entry| entry.path())
+            .collect();
+        if files.is_empty() {
+            return Err(format!("{} holds no policy file", path.display()));
+        }
+        files
+    } else if path.is_file() {
+        vec![path.to_path_buf()]
+    } else {
+        return Err(format!("{} is not a policy file", path.display()));
+    };
+    for file in files {
+        let read = || -> Result<(), Box<dyn Error>> {
+            #[expect(
+                deprecated,
+                reason = "the policy that the administrator names in the root file, with chsr"
+            )]
+            let mut document = read_document(method, &crate::util::read_with_privileges(&file)?)?;
+            migrate_document(&mut document)?;
+            serde_json::from_value::<Versioning<Rc<RefCell<SPolicy>>>>(document)?;
+            Ok(())
+        };
+        read().map_err(|e| format!("{} is not a policy in {method}: {e}", file.display()))?;
+    }
+    Ok(())
+}
+
+/// Other storage settings for the root file, checked before it is saved with them (chsr editor).
+#[derive(Debug)]
+pub struct StorageCheck {
+    root_path: PathBuf,
+    data_path: PathBuf,
+    loaded: SettingsContent,
+}
+
+impl StorageCheck {
+    /// Whether the root file can be saved with `storage`: the policy that it names loads, in its
+    /// format. Otherwise neither chsr nor dosr reads the policy anymore, and the root file must
+    /// be repaired by hand: a policy file named in another format, or a path that is not a
+    /// policy. A change of `immutable` only is not checked.
+    /// # Errors
+    /// Returns why the policy that `storage` names does not load.
+    pub fn check(&self, storage: &SettingsContent) -> Result<(), String> {
+        let named = |storage| named_policy(&self.root_path, &self.data_path, storage);
+        let path = named(storage);
+        if storage.method == self.loaded.method && path == named(&self.loaded) {
+            return Ok(());
+        }
+        match path {
+            Some(path) => check_policy_at(&path, storage.method),
+            // dosr reads the policy of the root file in the format of the storage settings
+            None if storage.method != RAR_CFG_TYPE => Err(format!(
+                "the root file holds the policy, in {RAR_CFG_TYPE}: its method must be {RAR_CFG_TYPE}"
+            )),
+            None => Ok(()),
+        }
+    }
 }
 
 pub type ConfigMap = Vec<LockedPolicy>;
@@ -215,6 +372,12 @@ pub struct FileSettings {
     /// Policy files of a directory that could not be loaded, with the reason.
     #[builder(skip)]
     ignored: Vec<(PathBuf, String)>,
+    /// The policy that the root file names, when it is not the root file itself.
+    #[builder(skip)]
+    policy_path: Option<PathBuf>,
+    /// The policy when the root file names none, if it is not the root file itself.
+    #[builder(skip)]
+    data_path: Option<PathBuf>,
 }
 
 impl FileSettings {
@@ -288,28 +451,13 @@ impl FileSettings {
         let mut map = ConfigMap::new();
         let mut ignored = Vec::new();
 
-        if let Some(path) = root
-            .data
-            .data
-            .storage
-            .settings
-            .as_ref()
-            .and_then(|settings| settings.path.as_ref())
-            .and_then(|path| {
-                if path.as_path() == rar_cfg_path.as_ref() {
-                    None
-                } else {
-                    Some(path.clone())
-                }
-            })
-            .or_else(|| {
-                if rar_cfg_path.as_ref() == rar_cfg_data_path {
-                    None
-                } else {
-                    Some(rar_cfg_data_path)
-                }
-            })
-        {
+        let policy_path = named_policy(
+            rar_cfg_path.as_ref(),
+            &rar_cfg_data_path,
+            &root.data.data.storage,
+        );
+        let data_path = Some(rar_cfg_data_path);
+        if let Some(path) = &policy_path {
             if !root.data.data.config.as_ref().borrow().is_empty() {
                 warn!(
                     "A policy has been detected in {}, but a different path is specified. 
@@ -351,13 +499,19 @@ impl FileSettings {
             } else if path.is_file() {
                 debug!("Loading settings from file {}", path.display());
                 let config =
-                    Self::load_policy_file(root.data.data.storage.method, options, write, &path)?;
+                    Self::load_policy_file(root.data.data.storage.method, options, write, path)?;
                 debug!("Loaded settings from file {}", path.display());
                 map.push(config);
             }
         }
 
-        Ok(Self { map, root, ignored })
+        Ok(Self {
+            map,
+            root,
+            ignored,
+            policy_path,
+            data_path,
+        })
     }
 
     /// # Errors
@@ -372,10 +526,12 @@ impl FileSettings {
         let mut root = LockedSettingsFile::open(path, options, write, |path, file| {
             debug!("Loading root settings from {}", path.display());
             let mut document = read_document(file_type, file)?;
+            let mut no_path = None;
             match migrate_document(&mut document) {
                 Ok(applied) => migration.set(applied),
-                Err(MigrationError::NoMigrationPath(from, to)) => {
-                    debug!("\x1b[31mNo migration path found from {from} to {to}\x1b[0m");
+                Err(e @ MigrationError::NoMigrationPath(..)) => {
+                    debug!("\x1b[31m{e}\x1b[0m");
+                    no_path = Some(e);
                 }
                 Err(MigrationError::MigrationFailed(e)) => return Err(io::Error::other(e)),
             }
@@ -384,6 +540,14 @@ impl FileSettings {
                     debug!("Failed to deserialize root settings: {e}");
                     io::Error::new(io::ErrorKind::InvalidData, e)
                 })?;
+            // the storage settings are read at any version, a policy only at a version that
+            // this version knows the meaning of, like in a policy file: an older version, or a
+            // newer one, may mean something else with the same words
+            if let Some(e) = no_path
+                && !settings.data.config.as_ref().borrow().is_empty()
+            {
+                return Err(io::Error::other(e.to_string()));
+            }
             Self::make_weak_config(&settings.data.config);
             settings
                 .upgrade_version(ROOT_MIGRATIONS)
@@ -457,33 +621,10 @@ impl FileSettings {
     pub fn save_all(&mut self) -> Result<(), Box<dyn Error>> {
         let immutable = self.immutable();
 
-        if let Some(path) = self.root.data.data.storage.settings.as_ref().and_then(|s| {
-            s.path.as_ref().and_then(|p| {
-                debug!(
-                    "Checking if root settings path needs to be updated: current {}, new {}",
-                    p.display(),
-                    p.display()
-                );
-                if p.is_dir() || *p == self.root.path {
-                    None
-                } else {
-                    Some(p.clone())
-                }
-            })
-        }) {
-            // Open the new file with the new path
-            let mut new_root = LockedSettingsFile::open_write(path, |_, _| {
-                Ok(Versioning::new(self.root.data.data.clone()))
-            })?;
-            // the file at the new path does not hold these settings yet
-            new_root.saved = None;
-            debug!(
-                "Moved root settings to new path: {}",
-                new_root.path.display()
-            );
-            drop(std::mem::replace(&mut self.root, new_root));
-        }
-
+        // the root settings stay in their own file, which dosr reads, and the policy that they
+        // name in its own files below: the root settings used to be moved into a separate policy
+        // file, and waited forever for the lock that the loaded policy file holds
+        //
         // only the files that changed: the others are not rewritten (in the typed form of the
         // actors, without their immutable flag for a while...)
         let mut has_errors = if !self.root.changed() {
@@ -531,6 +672,57 @@ impl FileSettings {
                 .map_err(|e| format!("Failed to save {}: {e}", config.path.display()))?;
         }
         Ok(())
+    }
+
+    /// Write every loaded file for the older version `to`, root file first, before that version
+    /// is installed, or with `check` only tell what would change. Each file is written whatever
+    /// happens to the others, and is then loaded again with the current version: the data is
+    /// not saved again, a later `save_all` would write it for the current version.
+    /// # Errors
+    /// Returns an error if the policy cannot be written for `to` (see `writable_version`), or if
+    /// `to` is the current version: `save_migrated` writes the policy for it.
+    pub fn write_for(&mut self, to: &str, check: bool) -> Result<Vec<FileDowngrade>, String> {
+        let to = writable_version(to)?;
+        if to == PACKAGE_VERSION {
+            return Err(format!("{to} is the current version"));
+        }
+        let immutable = self.immutable();
+        let method = self.root.data.data.storage.method;
+        let mut files = vec![Self::write_file_for(
+            &mut self.root,
+            &to,
+            RAR_CFG_TYPE,
+            immutable,
+            check,
+        )];
+        for config in &mut self.map {
+            files.push(Self::write_file_for(config, &to, method, immutable, check));
+        }
+        Ok(files)
+    }
+
+    fn write_file_for<T: Serialize + DeserializeOwned + Debug + Default>(
+        file: &mut LockedSettingsFile<T>,
+        to: &Version,
+        method: StorageMethod,
+        immutable: bool,
+        check: bool,
+    ) -> FileDowngrade {
+        let mut write = || -> Result<DocumentMigration, Box<dyn Error>> {
+            let mut document = file.document(method)?;
+            let Some(migration) = migrate_document_to(&mut document, to)? else {
+                return Err(format!("its version is not known, or is already {to}").into());
+            };
+            if !check {
+                file.save_document(&document, method, immutable)?;
+            }
+            Ok(migration)
+        };
+        let result = write().map_err(|e| e.to_string());
+        FileDowngrade {
+            path: file.path.clone(),
+            result,
+        }
     }
 
     /// The version of each loaded file, root settings first.
@@ -593,6 +785,27 @@ impl FileSettings {
     #[must_use]
     pub fn root_path(&self) -> &Path {
         &self.root.path
+    }
+
+    /// A check of other storage settings for the root file, before it is saved with them.
+    #[must_use]
+    pub fn storage_check(&self) -> StorageCheck {
+        StorageCheck {
+            root_path: self.root.path.clone(),
+            data_path: self
+                .data_path
+                .clone()
+                .unwrap_or_else(|| self.root.path.clone()),
+            loaded: self.root.data.data.storage.clone(),
+        }
+    }
+
+    /// The policy that the root file names, a file or a directory, when it is not the root file
+    /// itself: dosr reads the policy there, and not the policy of the root file, even when chsr
+    /// could load no policy file there.
+    #[must_use]
+    pub fn policy_path(&self) -> Option<&Path> {
+        self.policy_path.as_deref()
     }
 
     /// The policy files apart from the root file (those of a policy directory, or the one file
@@ -660,6 +873,174 @@ mod tests {
             ["LC_*"]
         );
         std::fs::remove_file(&path).unwrap();
+    }
+
+    // a root file at a version without a migration path, older or newer: its storage settings
+    // are read, a policy that it holds is refused, like the same policy in a policy file (it was
+    // edited, and saved with that version, as if this version knew what it means)
+    #[test]
+    fn test_root_file_without_a_migration_path() {
+        let dir = std::env::temp_dir().join(format!("rar-root-no-path-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let _cleanup = defer(|| {
+            let _ = std::fs::remove_dir_all(
+                std::env::temp_dir().join(format!("rar-root-no-path-{}", std::process::id())),
+            );
+        });
+        let root = dir.join("rootasrole.json");
+        let data = dir.join("policy.json");
+        let policy = serde_json::json!({"version": PACKAGE_VERSION.to_string(), "roles": []});
+        std::fs::write(&data, policy.to_string()).unwrap();
+        for version in ["3.0.0", "99.0.0"] {
+            let storage = serde_json::json!({"method": "json", "settings": {"path": data, "immutable": false}});
+            std::fs::write(
+                &root,
+                serde_json::json!({"version": version, "storage": storage}).to_string(),
+            )
+            .unwrap();
+            let settings = FileSettings::read_all(&root, &root, StorageMethod::JSON).unwrap();
+            assert_eq!(settings.get_versions()[0].version.to_string(), version);
+            assert_eq!(settings.policy_files().count(), 1);
+            drop(settings);
+
+            let storage = serde_json::json!({"method": "json", "settings": {"path": root, "immutable": false}});
+            for policy in [
+                serde_json::json!({"roles": [{"name": "r", "actors": []}]}),
+                serde_json::json!({"options": {"bounding": "ignore"}}),
+            ] {
+                let mut document = serde_json::json!({"version": version, "storage": storage});
+                document
+                    .as_object_mut()
+                    .unwrap()
+                    .extend(policy.as_object().unwrap().clone());
+                std::fs::write(&root, document.to_string()).unwrap();
+                let error = FileSettings::write_all(&root, &root, StorageMethod::JSON)
+                    .err()
+                    .unwrap_or_else(|| panic!("{document} is refused"));
+                assert_eq!(
+                    error.to_string(),
+                    format!("No migration path found from {version} to {PACKAGE_VERSION}")
+                );
+                // nothing is written
+                assert_eq!(
+                    std::fs::read_to_string(&root).unwrap(),
+                    document.to_string()
+                );
+            }
+        }
+    }
+
+    // the root file that names itself holds the policy, like for dosr, which reads the path that
+    // the root file names, else the data path: chsr loaded the policy of the data path instead
+    // (a directory like /etc/security/rootasrole.d/), and edited it while dosr read the root file,
+    // the layout that chsr convert -r json <root file> writes
+    #[test]
+    fn test_root_file_that_names_itself_holds_the_policy() {
+        let dir = std::env::temp_dir().join(format!("rar-names-itself-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("rootasrole.d")).unwrap();
+        let _cleanup = defer(|| {
+            let _ = std::fs::remove_dir_all(
+                std::env::temp_dir().join(format!("rar-names-itself-{}", std::process::id())),
+            );
+        });
+        let root = dir.join("rootasrole.json");
+        let data = dir.join("rootasrole.d");
+        let version = PACKAGE_VERSION.to_string();
+        std::fs::write(
+            data.join("default.json"),
+            serde_json::json!({"version": version, "roles": [{"name": "in_the_directory"}]})
+                .to_string(),
+        )
+        .unwrap();
+        let storage = |path: Option<&Path>| {
+            let mut root = serde_json::json!({
+                "version": version,
+                "storage": {"method": "json", "settings": {"immutable": false}},
+                "roles": [{"name": "in_the_root_file"}]
+            });
+            if let Some(path) = path {
+                root["storage"]["settings"]["path"] = serde_json::json!(path);
+            }
+            root.to_string()
+        };
+        std::fs::write(&root, storage(Some(&root))).unwrap();
+        let settings = FileSettings::read_all(&root, &data, StorageMethod::JSON).unwrap();
+        assert_eq!(settings.policy_path(), None);
+        assert_eq!(settings.policy_files().count(), 0);
+        drop(settings);
+        // without a path, the policy is at the data path
+        std::fs::write(&root, storage(None)).unwrap();
+        let settings = FileSettings::read_all(&root, &data, StorageMethod::JSON).unwrap();
+        assert_eq!(settings.policy_path(), Some(data.as_path()));
+        assert_eq!(settings.policy_files().count(), 1);
+    }
+
+    // other storage settings for the root file (chsr editor): the policy that they name must load
+    // in their format, otherwise neither chsr nor dosr reads it anymore
+    #[test]
+    fn test_storage_check() {
+        let dir = std::env::temp_dir().join(format!("rar-storage-check-{}", std::process::id()));
+        let _cleanup = defer(|| {
+            let _ = std::fs::remove_dir_all(
+                std::env::temp_dir().join(format!("rar-storage-check-{}", std::process::id())),
+            );
+        });
+        for sub in ["empty.d", "json.d"] {
+            std::fs::create_dir_all(dir.join(sub)).unwrap();
+        }
+        let version = PACKAGE_VERSION.to_string();
+        let policy = serde_json::json!({"version": version, "roles": [{"name": "r"}]});
+        let root = dir.join("rootasrole.json");
+        let json = dir.join("policy.json");
+        let cbor = dir.join("policy.bin");
+        std::fs::write(&json, policy.to_string()).unwrap();
+        std::fs::write(dir.join("json.d/a.json"), policy.to_string()).unwrap();
+        std::fs::write(&cbor, cbor4ii::serde::to_vec(Vec::new(), &policy).unwrap()).unwrap();
+        let storage = |method: &str, path: &Path, immutable: bool| -> SettingsContent {
+            serde_json::from_value(serde_json::json!({
+                "method": method,
+                "settings": {"path": path, "immutable": immutable}
+            }))
+            .unwrap()
+        };
+        std::fs::write(
+            &root,
+            serde_json::json!({"version": version, "storage": storage("json", &json, false)})
+                .to_string(),
+        )
+        .unwrap();
+        let settings = FileSettings::read_all(&root, &root, StorageMethod::JSON).unwrap();
+        let check = settings.storage_check();
+        for accepted in [
+            storage("json", &json, false),
+            // only immutable changes
+            storage("json", &json, true),
+            storage("cbor", &cbor, false),
+            storage("json", &dir.join("json.d"), false),
+            storage("json", &root, false),
+        ] {
+            assert_eq!(check.check(&accepted), Ok(()), "{accepted:?}");
+        }
+        for (refused, reason) in [
+            (storage("cbor", &json, false), "is not a policy in cbor"),
+            (storage("json", &cbor, false), "is not a policy in json"),
+            (
+                storage("json", &dir.join("missing.json"), false),
+                "is not a policy file",
+            ),
+            (
+                storage("json", &dir.join("empty.d"), false),
+                "holds no policy file",
+            ),
+            (
+                storage("cbor", &dir.join("json.d"), false),
+                "is not a policy in cbor",
+            ),
+            (storage("cbor", &root, false), "its method must be json"),
+        ] {
+            let error = check.check(&refused).unwrap_err();
+            assert!(error.contains(reason), "{refused:?}: {error}");
+        }
     }
 
     #[test]
@@ -911,16 +1292,92 @@ mod tests {
         config.save(StorageMethod::JSON, false).unwrap();
         drop(config); // yes, it is ugly.
         // assert that external_file contains /usr/bin/true
-        let mut file = read_with_privileges(external_file).unwrap();
+        let mut file = File::open(external_file).unwrap();
         let mut content = String::new();
         file.read_to_string(&mut content).unwrap();
         assert!(content.contains("/usr/bin/true"));
 
         // assert that test_file does NOT contain /usr/bin/true (only storage settings)
-        let mut file = read_with_privileges(test_file).unwrap();
+        let mut file = File::open(test_file).unwrap();
         let mut content = String::new();
         file.read_to_string(&mut content).unwrap();
         assert!(!content.contains("/usr/bin/true"));
+    }
+
+    // a root file that names a separate policy file: saving an edit of the policy writes it in
+    // that file, keeps the root file as it is, and does not wait for the lock of the loaded file
+    #[test]
+    fn test_save_all_with_a_separate_policy_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let (done, finished) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let dir = std::env::temp_dir().join(format!("rar-separate-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let root = dir.join("rootasrole.json");
+            let data = dir.join("policy.json");
+            let version = crate::PACKAGE_VERSION.to_string();
+            std::fs::write(
+                &root,
+                serde_json::json!({"version": version, "storage": {"method": "json", "settings": {"path": data, "immutable": false}}}).to_string(),
+            )
+            .unwrap();
+            std::fs::write(
+                &data,
+                serde_json::json!({"version": version, "roles": [{"name": "r0", "actors": []}]})
+                    .to_string(),
+            )
+            .unwrap();
+            for file in [&root, &data] {
+                std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o600)).unwrap();
+            }
+            let root_before = std::fs::read_to_string(&root).unwrap();
+            let mut settings =
+                FileSettings::write_all(root.clone(), root.clone(), StorageMethod::JSON).unwrap();
+            settings.get_policies()[0]
+                .borrow_mut()
+                .roles
+                .push(SRole::builder("r1").build());
+            settings.save_all().unwrap();
+            drop(settings);
+            let data_after = std::fs::read_to_string(&data).unwrap();
+            let root_after = std::fs::read_to_string(&root).unwrap();
+            std::fs::remove_dir_all(&dir).unwrap();
+            done.send((root_before, root_after, data_after)).unwrap();
+        });
+        let (root_before, root_after, data_after) = finished
+            .recv_timeout(std::time::Duration::from_secs(20))
+            .expect("save_all finishes, without waiting for a lock that this process holds");
+        assert_eq!(root_after, root_before);
+        assert!(data_after.contains("r1"), "{data_after}");
+        assert!(!data_after.contains("storage"), "{data_after}");
+    }
+
+    // what follows the value in a policy file makes it invalid, in CBOR as in JSON (chsr):
+    // the CBOR reader stopped after the first value
+    #[test]
+    fn test_read_document_refuses_data_after_the_value() {
+        let path = std::env::temp_dir().join(format!("rar-read-document-{}", std::process::id()));
+        let value = serde_json::json!({"version": "4.3.0", "x": [1, 2]});
+        for method in [StorageMethod::JSON, StorageMethod::CBOR] {
+            let (mut bytes, after): (Vec<u8>, &[u8]) = match method {
+                StorageMethod::JSON => (serde_json::to_vec(&value).unwrap(), b"{}"),
+                StorageMethod::CBOR => {
+                    (cbor4ii::serde::to_vec(Vec::new(), &value).unwrap(), &[0xf6])
+                }
+            };
+            std::fs::write(&path, &bytes).unwrap();
+            let read = read_document(method, &File::open(&path).unwrap());
+            assert_eq!(read.unwrap(), value, "{method}");
+            bytes.extend_from_slice(after);
+            std::fs::write(&path, &bytes).unwrap();
+            let read = read_document(method, &File::open(&path).unwrap());
+            assert_eq!(
+                read.unwrap_err().kind(),
+                io::ErrorKind::InvalidData,
+                "{method}"
+            );
+        }
+        std::fs::remove_file(&path).unwrap();
     }
 
     #[test]
@@ -989,7 +1446,7 @@ mod tests {
         config.save(StorageMethod::CBOR, false).unwrap();
         drop(config); // yes, it is ugly.
         // Assert that external_file is a binary file with CBOR format
-        let mut file = read_with_privileges(external_file).unwrap();
+        let mut file = File::open(external_file).unwrap();
         let mut content = Vec::new();
         file.read_to_end(&mut content).unwrap();
         let deserialized: Versioning<Rc<RefCell<SPolicy>>> =

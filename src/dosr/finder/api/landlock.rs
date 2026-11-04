@@ -10,6 +10,7 @@ use landlock::{
     ABI, Access, AccessFs, BitFlags, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreated,
     RulesetCreatedAttr,
 };
+use log::error;
 use rootasrole_exec::orchestrator::{PreExecContext, PreExecStep, Stage};
 use serde::{Deserialize, Serialize};
 
@@ -117,6 +118,12 @@ fn get_landlock_access(access: FAccess) -> BitFlags<AccessFs> {
     }
 }
 
+/// Logs why the files of the task cannot restrict the command.
+fn refused(e: impl std::fmt::Display) -> SrError {
+    error!("The files of the task cannot be applied with Landlock: {e}");
+    SrError::ConfigurationError
+}
+
 fn pre_exec(event: &mut ApiEvent) -> SrResult<()> {
     if let ApiEvent::PreExec(_, settings) = event {
         LANDLOCK_RULESET.with(|rs| *rs.borrow_mut() = None);
@@ -125,24 +132,25 @@ fn pre_exec(event: &mut ApiEvent) -> SrResult<()> {
             if let Some(obj) = fileset.as_object() {
                 for (key, value) in obj {
                     let access: FAccess = serde_json::from_value(value.clone())
-                        .map_err(|_| SrError::ConfigurationError)?;
+                        .map_err(|e| refused(format!("{key}: {e}")))?;
                     whitelist.insert(PathBuf::from(key), access);
                 }
             }
 
             let mut ruleset = Ruleset::default()
                 .handle_access(AccessFs::from_all(VERSION))
-                .map_err(|_| SrError::ConfigurationError)?
+                .map_err(refused)?
                 .create()
-                .map_err(|_| SrError::ConfigurationError)?;
+                .map_err(refused)?;
 
             for (path, access) in &whitelist {
                 let landlock_access = get_landlock_access(*access);
                 for path in expand(path) {
-                    let path_fd = PathFd::new(path).map_err(|_| SrError::ConfigurationError)?;
+                    let path_fd = PathFd::new(&path)
+                        .map_err(|e| refused(format!("{}: {e}", path.display())))?;
                     ruleset = ruleset
                         .add_rule(PathBeneath::new(path_fd, landlock_access))
-                        .map_err(|_| SrError::ConfigurationError)?;
+                        .map_err(refused)?;
                 }
             }
             LANDLOCK_RULESET.with(|rs| {

@@ -59,7 +59,7 @@ use bon::Builder;
 use konst::result;
 use libc::dev_t;
 use nix::unistd::{Gid, Group, Pid, Uid, User, getgroups};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer, ser::SerializeMap};
 use serde_json::{Map, Value};
 
 /// [`println!`] that ignores write errors: a privileged program must not panic because its
@@ -130,6 +130,10 @@ pub mod ldap;
 pub mod log;
 pub mod util;
 
+use crate::database::{
+    ser::{Unknown, field},
+    versionning::VersionedData,
+};
 #[cfg(feature = "ldap")]
 use crate::ldap::LdapSettings;
 use crate::util::{Either, RAR_CFG_TYPE, StorageMethod};
@@ -156,12 +160,14 @@ pub struct Cred {
     pub curdir: PathBuf,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Builder, Default, PartialEq, Eq)]
+/// Where the policy is. CBOR writes `immutable` and `path` under one character, like
+/// [`SettingsContent`].
+#[derive(Deserialize, Debug, Clone, Builder, Default, PartialEq, Eq)]
 pub struct RemoteStorageSettings {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "i")]
     #[builder(name = not_immutable,with = || false)]
     pub immutable: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "p")]
     #[builder(into)]
     pub path: Option<PathBuf>,
     #[cfg(feature = "sgbd")]
@@ -186,9 +192,51 @@ pub struct RemoteStorageSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub properties: Option<Properties>,
     /// The fields that this version does not know, kept when the policy is saved again
-    #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
+    #[serde(default, flatten)]
     #[builder(default)]
     pub extra_fields: Map<String, Value>,
+}
+
+impl Serialize for RemoteStorageSettings {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let human_readable = serializer.is_human_readable();
+        let mut map = serializer.serialize_map(None)?;
+        if let Some(immutable) = &self.immutable {
+            map.serialize_entry(field(human_readable, "immutable", "i"), immutable)?;
+        }
+        if let Some(path) = &self.path {
+            map.serialize_entry(field(human_readable, "path", "p"), path)?;
+        }
+        // not designed yet: their names are not shortened
+        #[cfg(feature = "sgbd")]
+        {
+            if let Some(host) = &self.host {
+                map.serialize_entry("host", host)?;
+            }
+            if let Some(port) = &self.port {
+                map.serialize_entry("port", port)?;
+            }
+            if let Some(auth) = &self.auth {
+                map.serialize_entry("auth", auth)?;
+            }
+            if let Some(database) = &self.database {
+                map.serialize_entry("database", database)?;
+            }
+            if let Some(schema) = &self.schema {
+                map.serialize_entry("schema", schema)?;
+            }
+            if let Some(table_prefix) = &self.table_prefix {
+                map.serialize_entry("table_prefix", table_prefix)?;
+            }
+            if let Some(properties) = &self.properties {
+                map.serialize_entry("properties", properties)?;
+            }
+        }
+        for (key, value) in &self.extra_fields {
+            map.serialize_entry(key, &Unknown(value))?;
+        }
+        map.end()
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -197,20 +245,53 @@ pub struct Properties {
     pub character_encoding: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Builder, PartialEq, Eq, Default)]
+/// The storage settings of the root file, which CBOR writes under one character, like the
+/// policy.
+#[derive(Deserialize, Debug, Clone, Builder, PartialEq, Eq, Default)]
 pub struct SettingsContent {
+    #[serde(alias = "m")]
     #[builder(default = RAR_CFG_TYPE, into)]
     pub method: StorageMethod,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "s")]
     pub settings: Option<RemoteStorageSettings>,
 
     #[cfg(feature = "ldap")]
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "l")]
     pub ldap: Option<LdapSettings>,
     /// The fields that this version does not know, kept when the policy is saved again
-    #[serde(default, flatten, skip_serializing_if = "Map::is_empty")]
+    #[serde(default, flatten)]
     #[builder(default)]
     pub extra_fields: Map<String, Value>,
+}
+
+impl Serialize for SettingsContent {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let human_readable = serializer.is_human_readable();
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry(field(human_readable, "method", "m"), &self.method)?;
+        if let Some(settings) = &self.settings {
+            map.serialize_entry(field(human_readable, "settings", "s"), settings)?;
+        }
+        #[cfg(feature = "ldap")]
+        if let Some(ldap) = &self.ldap {
+            map.serialize_entry(field(human_readable, "ldap", "l"), ldap)?;
+        }
+        for (key, value) in &self.extra_fields {
+            map.serialize_entry(key, &Unknown(value))?;
+        }
+        map.end()
+    }
+}
+
+/// The storage settings of a root file next to its version, as dosr reads them.
+impl VersionedData for SettingsContent {
+    fn serialize_entries<M: SerializeMap>(
+        &self,
+        map: &mut M,
+        human_readable: bool,
+    ) -> Result<(), M::Error> {
+        map.serialize_entry(field(human_readable, "storage", "s"), self)
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

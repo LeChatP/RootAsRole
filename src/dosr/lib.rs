@@ -33,6 +33,7 @@ macro_rules! eprint {
     };
 }
 
+mod coredump;
 mod error;
 mod finder;
 #[cfg(feature = "fuzzing")]
@@ -71,6 +72,7 @@ use std::{io, process::Command};
 use crate::pre_exec::{PRE_EXEC_ORCHESTRATOR, configure_pre_exec};
 use rootasrole_core::util::{BOLD, RST, UNDERLINE, drop_effective};
 
+use crate::error::Failure;
 use crate::error::SrError;
 use crate::error::SrResult;
 use crate::finder::de::cred::CredOwnedData;
@@ -179,6 +181,19 @@ impl Default for Cli {
     }
 }
 
+/// The command that shows the log of dosr, set at build time; empty on a system without one.
+const RAR_LOG_COMMAND: &str = env!("RAR_LOG_COMMAND");
+
+/// What the user reads after an error whose reason is only in the log: dosr shows nothing of the
+/// policy, only where to read why, with `command` when the build names one.
+fn log_hint(command: &str) -> String {
+    if command.is_empty() {
+        "see the reason in the system log, or ask your system administrator".to_string()
+    } else {
+        format!("see the reason with `{command}`, or ask your system administrator")
+    }
+}
+
 const CAPABILITIES_ERROR: &str = "You need at least dac_read_search or dac_override, setpcap and setuid capabilities to run dosr";
 fn cap_effective_error(caplist: &str) -> String {
     format!("Unable to toggle {caplist} privilege. {CAPABILITIES_ERROR}")
@@ -260,17 +275,14 @@ where
     while let Some(arg) = iter.next() {
         // matches only first options
         match arg.as_ref() {
+            // by their names only, as the test of CVE-2019-14287 below says: a string of digits,
+            // which the policy takes for an id, is the name of nobody here
             "-u" | "--user" => {
-                user = iter.next().map(|s| s.as_ref().into());
+                user = iter.next().map(|s| SUserType::by_name(s.as_ref()));
             }
             "-g" | "--group" => {
                 group = iter.next().map(|s| {
-                    SGroups::Multiple(
-                        s.as_ref()
-                            .split(',')
-                            .map(std::convert::Into::into)
-                            .collect::<Vec<SGroupType>>(),
-                    )
+                    SGroups::Multiple(s.as_ref().split(',').map(SGroupType::by_name).collect())
                 });
             }
             "-S" | "--stdin" => {
@@ -358,12 +370,18 @@ pub fn dosr_main() {
         eprintln_ignore_io_error!("dosr: Failed to initialize logging: {e}");
         std::process::exit(1);
     }
-    if let Err(e) = main_inner() {
+    if let Err(Failure {
+        error: e,
+        reason_logged,
+    }) = main_inner()
+    {
         eprintln_ignore_io_error!("dosr: {e}");
         // whatever the error, it comes from the missing capabilities when dosr lacks them
         let missing = missing_privileges();
         if let Some(reason) = &missing {
             eprintln_ignore_io_error!("dosr: {reason}");
+        } else if e == SrError::ConfigurationError || reason_logged {
+            eprintln_ignore_io_error!("dosr: {}", log_hint(RAR_LOG_COMMAND));
         }
         if e == SrError::InsufficientPrivileges || missing.is_some() {
             error!(
@@ -395,17 +413,19 @@ pub fn dosr_main() {
 
 #[cfg(not(tarpaulin_include))]
 #[allow(clippy::too_many_lines)]
-fn main_inner() -> SrResult<()> {
+fn main_inner() -> Result<(), Failure> {
     use std::env;
 
     use crate::{
         RAR_CFG_PATH,
         finder::api::{Api, register_plugins},
-        pam::{session_env, start_session},
+        pam::{authenticate, open_session},
     };
     use finder::find_best_exec_settings;
     use rootasrole_core::util::RAR_CFG_TYPE;
 
+    // before anything of the policy or of PAM is in memory
+    let core_limit = coredump::disable();
     debug!("Started with capabilities: {:?}", CapState::get_current()?);
     drop_effective()?;
     let args = utf8_args(std::env::args_os())?;
@@ -424,7 +444,7 @@ fn main_inner() -> SrResult<()> {
         #[cfg(not(feature = "timeout"))]
         {
             error!("The timeout feature is not enabled, cannot delete timestamp cookie");
-            return Err(SrError::InvalidAgruments);
+            return Err(SrError::InvalidAgruments.into());
         }
         #[cfg(feature = "timeout")]
         {
@@ -454,100 +474,19 @@ fn main_inner() -> SrResult<()> {
 
     debug!("Best exec settings: {execcfg:?}");
 
-    // Let the PAM session live until the end of the program
-    let session = start_session(
+    // the password is asked for a command refused next too, so that the policy is not revealed
+    let authenticated = authenticate(
         execcfg.auth,
         &execcfg.timeout,
         execcfg.password,
         &user,
         &args,
     )?;
-    // The variables that PAM modules set go through the filter of the policy, like the user's
-    execcfg
-        .env_filter
-        .add_vars(&mut execcfg.env, session_env(&session));
-
-    if !execcfg.score.fully_matching() {
-        println_ignore_io_error!(
-            "You are not allowed to execute this command, this incident will be reported."
-        );
-        error!(
-            "User {} tried to execute command : {} {:?} without the permission.",
-            &user.user.name,
-            args.cmd_path.display(),
-            args.cmd_args
-        );
-
-        std::process::exit(1);
+    if let Some(code) = stop_before_session(&user, &execcfg, &args) {
+        // no PAM session for a command that does not run, like sudo -l
+        drop(authenticated);
+        std::process::exit(code);
     }
-
-    // after authentication, so that the policy is not revealed, but before the execution is
-    // logged as granted: these capabilities can never be granted in this session
-    let missing = caps_outside_bounding(execcfg.cred.caps, capctl::bounding::probe());
-    if !missing.is_empty() {
-        let names = missing
-            .iter()
-            .map(|cap| cap.to_string())
-            .collect::<Vec<_>>()
-            .join(" ");
-        eprintln_ignore_io_error!(
-            "dosr: the task needs capabilities that this session cannot obtain anymore: {names}"
-        );
-        error!(
-            "User {} cannot run {} with the task {:?} of the role {}: {names} are not in the bounding set (a container, or a session started with a strict bounding set)",
-            &user.user.name,
-            execcfg.final_path.display(),
-            execcfg.task,
-            execcfg.role
-        );
-        std::process::exit(1);
-    }
-
-    if args.info {
-        println_ignore_io_error!(
-            "Role: {}",
-            if execcfg.role.is_empty() {
-                "None"
-            } else {
-                &execcfg.role
-            }
-        );
-        println_ignore_io_error!("Task: {}", execcfg.task.as_ref().map_or("None", |v| v));
-        print_ignore_io_error!(
-            "Execute as user: {}",
-            if let Some(u) = execcfg.cred.setuid {
-                format!("{} ({})", u.name, u.uid)
-            } else {
-                "Your current user".to_string()
-            }
-        );
-        if let Some(gids) = execcfg.cred.setgroups.as_ref() {
-            print_ignore_io_error!(" and group(s): ");
-            let groups = gids
-                .iter()
-                .map(|g| format!("{} ({})", g.name, g.gid))
-                .collect::<Vec<_>>()
-                .join(", ");
-            println_ignore_io_error!("{groups}");
-        } else {
-            println_ignore_io_error!(" your current group(s)");
-        }
-        println_ignore_io_error!(
-            "With capabilities: {}",
-            capabilities_display(execcfg.cred.caps)
-        );
-        println_ignore_io_error!(
-            "Command: {} {:?}",
-            execcfg.final_path.display(),
-            args.cmd_args
-        );
-        std::process::exit(0);
-    }
-
-    info!("{}", execution_log_line(&user, &execcfg, &args));
-
-    // Build the command
-    let mut command_builder = Command::new(&execcfg.final_path);
 
     // The command runs in the directory asked with -D, else in the one forced by the policy.
     // It is entered by the pre-exec steps, once the target user is set.
@@ -563,7 +502,18 @@ fn main_inner() -> SrResult<()> {
             error!("The working directory contains a NUL character");
             SrError::InvalidAgruments
         })?;
+
+    // The PAM session lives until the command ends: it is closed when dropped
+    let session = open_session(authenticated, &user)?;
+    // The variables that PAM modules set go through the filter of the policy, like the user's
+    execcfg.env_filter.add_vars(&mut execcfg.env, session.env());
+
+    info!("{}", execution_log_line(&user, &execcfg, &args));
+
+    // Build the command
+    let mut command_builder = Command::new(&execcfg.final_path);
     configure_pre_exec(
+        core_limit,
         execcfg.umask.0,
         execcfg.cred.clone(),
         execcfg.bounding,
@@ -601,12 +551,96 @@ fn main_inner() -> SrResult<()> {
         Err(e) => {
             error!("{e}");
             eprintln_ignore_io_error!("dosr: {} : {}", cfinal_path.display(), e);
+            drop(session);
             std::process::exit(1);
         }
     };
-    // drop PAM session here for underlining to the compiler that the session ends here.
+    // the PAM session ends here, after the command
     drop(session);
     exit_like(status)
+}
+
+/// Where dosr stops after the password, before the PAM session: the command is not allowed, the
+/// task needs capabilities that this session cannot obtain, or `-i` only shows the task. The exit
+/// code of dosr then.
+#[cfg(not(tarpaulin_include))]
+fn stop_before_session(user: &Cred, execcfg: &finder::BestExecSettings, args: &Cli) -> Option<i32> {
+    if !execcfg.score.fully_matching() {
+        println_ignore_io_error!(
+            "You are not allowed to execute this command, this incident will be reported."
+        );
+        error!(
+            "User {} tried to execute command : {} {:?} without the permission.",
+            &user.user.name,
+            args.cmd_path.display(),
+            args.cmd_args
+        );
+
+        return Some(1);
+    }
+
+    // after authentication, so that the policy is not revealed, but before the execution is
+    // logged as granted: these capabilities can never be granted in this session
+    let missing = caps_outside_bounding(execcfg.cred.caps, capctl::bounding::probe());
+    if !missing.is_empty() {
+        let names = missing
+            .iter()
+            .map(|cap| cap.to_string())
+            .collect::<Vec<_>>()
+            .join(" ");
+        eprintln_ignore_io_error!(
+            "dosr: the task needs capabilities that this session cannot obtain anymore: {names}"
+        );
+        error!(
+            "User {} cannot run {} with the task {:?} of the role {}: {names} are not in the bounding set (a container, or a session started with a strict bounding set)",
+            &user.user.name,
+            execcfg.final_path.display(),
+            execcfg.task,
+            execcfg.role
+        );
+        return Some(1);
+    }
+
+    if args.info {
+        println_ignore_io_error!(
+            "Role: {}",
+            if execcfg.role.is_empty() {
+                "None"
+            } else {
+                &execcfg.role
+            }
+        );
+        println_ignore_io_error!("Task: {}", execcfg.task.as_ref().map_or("None", |v| v));
+        print_ignore_io_error!(
+            "Execute as user: {}",
+            execcfg.cred.setuid.as_ref().map_or_else(
+                || "Your current user".to_string(),
+                |u| format!("{} ({})", u.name, u.uid)
+            )
+        );
+        if let Some(gids) = execcfg.cred.setgroups.as_ref() {
+            print_ignore_io_error!(" and group(s): ");
+            let groups = gids
+                .iter()
+                .map(|g| format!("{} ({})", g.name, g.gid))
+                .collect::<Vec<_>>()
+                .join(", ");
+            println_ignore_io_error!("{groups}");
+        } else {
+            println_ignore_io_error!(" your current group(s)");
+        }
+        println_ignore_io_error!(
+            "With capabilities: {}",
+            capabilities_display(execcfg.cred.caps)
+        );
+        println_ignore_io_error!(
+            "Command: {} {:?}",
+            execcfg.final_path.display(),
+            args.cmd_args
+        );
+        return Some(0);
+    }
+    None
 }
 
 /// The user that gets the pseudo-terminal of the command, when it is not the caller: the user
@@ -990,6 +1024,31 @@ mod tests {
     }
 
     #[test]
+    fn test_getopt_refuses_users_and_groups_that_do_not_exist() {
+        // sudo CVE-2019-14287: -u#-1 ran the command as root, since setresuid(-1) changes
+        // nothing; dosr takes users and groups by their names, which -1 and 4294967295 are not
+        // nor a uid or a gid: no user is named 0
+        for (option, value) in [
+            ("-u", "#-1"),
+            ("-u", "-1"),
+            ("-u", "4294967295"),
+            ("-u", "0"),
+            ("-g", "-1"),
+            ("-g", "4294967295"),
+            ("-g", "root,-1"),
+            ("-g", "0"),
+        ] {
+            assert!(
+                matches!(
+                    getopt(["dosr", option, value, "id"]),
+                    Err(SrError::InvalidAgruments)
+                ),
+                "{option} {value}"
+            );
+        }
+    }
+
+    #[test]
     fn test_getopt_missing_prompt() {
         assert!(matches!(
             getopt(["dosr", "-p"]),
@@ -1206,6 +1265,20 @@ mod tests {
         // in the bounding set but not permitted: the file of dosr
         let reason = missing_privileges_reason(false, CapSet::empty(), all).unwrap();
         assert!(reason.contains("setcap"), "{reason}");
+    }
+
+    // the reason is only in the log: the user is told where to read it, with the command of the
+    // build, or else in the log of the system, and whom to ask
+    #[test]
+    fn test_log_hint() {
+        assert_eq!(
+            log_hint("journalctl -t dosr"),
+            "see the reason with `journalctl -t dosr`, or ask your system administrator"
+        );
+        assert_eq!(
+            log_hint(""),
+            "see the reason in the system log, or ask your system administrator"
+        );
     }
 
     #[test]

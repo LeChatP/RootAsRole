@@ -10,10 +10,13 @@ case "$ID" in
         apt-get update
         apt-get install -y build-essential curl git pkg-config e2fsprogs libcap2-bin python3 \
             clang libpam0g-dev libseccomp-dev pandoc
+        # the editors that e2e.sh runs under the sandbox of chsr editor
+        apt-get install -y vim nano emacs-nox joe micro
         ;;
     arch)
         pacman -Syu --noconfirm --needed base-devel curl git e2fsprogs libcap python \
             clang pam libseccomp pandoc-cli
+        pacman -S --noconfirm --needed vim nano emacs-nox joe micro
         ;;
     *)
         echo "provision.sh: unsupported distribution $ID" >&2

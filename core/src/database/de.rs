@@ -10,7 +10,7 @@ use crate::database::{
 };
 
 use super::{
-    actor::SGenericActorType,
+    actor::{SGenericActorType, numeric_id},
     structs::{SCapabilities, SCommands},
 };
 use capctl::{Cap, CapSet};
@@ -367,9 +367,7 @@ impl<'de> Deserialize<'de> for SGenericActorType {
                     "Invalid number value for SGenericActorType",
                 )),
             },
-            serde_json::Value::String(ref s) => s
-                .parse()
-                .map_or_else(|_| Ok(Self::Name(s.clone())), |num| Ok(Self::Id(num))),
+            serde_json::Value::String(s) => Ok(numeric_id(&s).map_or(Self::Name(s), Self::Id)),
             _ => Err(serde::de::Error::custom(
                 "Invalid input for SGenericActorType",
             )),

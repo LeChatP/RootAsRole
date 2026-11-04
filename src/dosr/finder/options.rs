@@ -26,17 +26,23 @@ use super::de::DLinkedTask;
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Builder, Default)]
 pub struct DPathOptions<'a> {
-    #[serde(rename = "default", default, skip_serializing_if = "is_default")]
+    #[serde(
+        rename = "default",
+        alias = "d",
+        default,
+        skip_serializing_if = "is_default"
+    )]
     #[builder(start_fn)]
     pub default_behavior: PathBehavior,
-    #[serde(borrow, default, skip_serializing_if = "Option::is_none")]
+    #[serde(borrow, alias = "a", default, skip_serializing_if = "Option::is_none")]
     #[builder(with = |v : impl IntoIterator<Item = impl Into<Cow<'a, str>>>| { v.into_iter().map(std::convert::Into::into).collect() })]
     pub add: Option<Cow<'a, [Cow<'a, str>]>>,
     #[serde(
         borrow,
         default,
         skip_serializing_if = "Option::is_none",
-        alias = "del"
+        alias = "del",
+        alias = "s"
     )]
     #[builder(with = |v : impl IntoIterator<Item = impl Into<Cow<'a, str>>>| { v.into_iter().map(std::convert::Into::into).collect() })]
     pub sub: Option<Cow<'a, [Cow<'a, str>]>>,
@@ -46,25 +52,35 @@ pub struct DPathOptions<'a> {
 /// rootasrole-core). A list that the level does not define is `None`, and is inherited.
 #[derive(Deserialize, Serialize, PartialEq, Eq, Debug, Clone, Default, Builder)]
 pub struct DEnvOptions<'a> {
-    #[serde(rename = "default", default, skip_serializing_if = "is_default")]
+    #[serde(
+        rename = "default",
+        alias = "d",
+        default,
+        skip_serializing_if = "is_default"
+    )]
     #[builder(start_fn)]
     pub default_behavior: EnvBehavior,
-    #[serde(alias = "override", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        alias = "override",
+        alias = "o",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub override_behavior: Option<bool>,
-    #[serde(borrow, default, skip_serializing_if = "Option::is_none")]
+    #[serde(borrow, alias = "v", default, skip_serializing_if = "Option::is_none")]
     #[builder(with = |iter: impl IntoIterator<Item = (impl Into<Cow<'a,str>>, impl Into<Cow<'a,str>>)>| {
         let mut map = HashMap::with_hasher(Default::default());
         map.extend(iter.into_iter().map(|(k, v)| (k.into(), v.into())));
         map
     })]
     pub set: Option<HashMap<Cow<'a, str>, Cow<'a, str>>>,
-    #[serde(borrow, default, skip_serializing_if = "Option::is_none")]
+    #[serde(borrow, alias = "k", default, skip_serializing_if = "Option::is_none")]
     #[builder(with = |v : impl IntoIterator<Item = impl Into<Cow<'a,str>>>| -> Result<_,Cow<'a,str>> { let mut res = HashSet::new(); for s in v { res.insert(s.into()); } Ok(res)})]
     pub keep: Option<HashSet<Cow<'a, str>>>,
-    #[serde(borrow, default, skip_serializing_if = "Option::is_none")]
+    #[serde(borrow, alias = "c", default, skip_serializing_if = "Option::is_none")]
     #[builder(with = |v : impl IntoIterator<Item = impl Into<Cow<'a,str>>>| -> Result<_,Cow<'a,str>> { let mut res = HashSet::new(); for s in v { res.insert(s.into()); } Ok(res)})]
     pub check: Option<HashSet<Cow<'a, str>>>,
-    #[serde(borrow, default, skip_serializing_if = "Option::is_none")]
+    #[serde(borrow, alias = "s", default, skip_serializing_if = "Option::is_none")]
     #[builder(with = |v : impl IntoIterator<Item = impl Into<Cow<'a,str>>>| -> Result<_,Cow<'a,str>> { let mut res = HashSet::new(); for s in v { res.insert(s.into()); } Ok(res)})]
     pub delete: Option<HashSet<Cow<'a, str>>>,
 }
@@ -88,7 +104,12 @@ pub struct DWorkdirSet<'a> {
     ///
     /// Note: The target user must have permissions to access the allowed workdirs, otherwise the command will fail to execute.
     /// If you want bypass the access control check, grant the `CAP_DAC_READ_SEARCH` capability in the "cred" section
-    #[serde(rename = "default", default, skip_serializing_if = "is_default")]
+    #[serde(
+        rename = "default",
+        alias = "d",
+        default,
+        skip_serializing_if = "is_default"
+    )]
     #[builder(start_fn)]
     pub default_behavior: WorkdirBehavior,
 
@@ -98,17 +119,18 @@ pub struct DWorkdirSet<'a> {
     /// someone type: `dosr ls` in his home directory, but the config has a fallback of `/tmp`,
     /// then the command will be executed with `/tmp` as the working directory instead of the user's home directory.
     /// This is useful in scenarios where users do not have to know or care about the actual working directory of a command
-    #[serde(borrow, default, skip_serializing_if = "Option::is_none")]
+    #[serde(borrow, alias = "f", default, skip_serializing_if = "Option::is_none")]
     pub fallback: Option<Cow<'a, str>>,
 
-    #[serde(borrow, default, skip_serializing_if = "Option::is_none")]
+    #[serde(borrow, alias = "a", default, skip_serializing_if = "Option::is_none")]
     #[builder(with = |v : impl IntoIterator<Item = impl Into<Cow<'a, str>>>| { v.into_iter().map(std::convert::Into::into).collect() })]
     pub add: Option<HashSet<Cow<'a, str>>>,
     #[serde(
         borrow,
         default,
         skip_serializing_if = "Option::is_none",
-        alias = "del"
+        alias = "del",
+        alias = "s"
     )]
     #[builder(with = |v : impl IntoIterator<Item = impl Into<Cow<'a, str>>>| { v.into_iter().map(std::convert::Into::into).collect() })]
     pub sub: Option<HashSet<Cow<'a, str>>>,
@@ -163,32 +185,34 @@ impl WorkdirLevel for DWorkdirEither<'_> {
     }
 }
 
+/// The options of a level, under their names or the characters that CBOR writes (see `Opt` in
+/// rootasrole-core).
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default)]
 #[serde(rename_all = "kebab-case")]
 pub struct Opt<'a> {
     #[serde(skip)]
     pub level: Level,
-    #[serde(borrow, default, skip_serializing_if = "Option::is_none")]
+    #[serde(borrow, alias = "p", default, skip_serializing_if = "Option::is_none")]
     pub path: Option<DPathOptions<'a>>,
-    #[serde(borrow, default, skip_serializing_if = "Option::is_none")]
+    #[serde(borrow, alias = "e", default, skip_serializing_if = "Option::is_none")]
     pub env: Option<DEnvOptions<'a>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "r", default, skip_serializing_if = "Option::is_none")]
     pub root: Option<SPrivileged>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "b", default, skip_serializing_if = "Option::is_none")]
     pub bounding: Option<SBounding>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "a", default, skip_serializing_if = "Option::is_none")]
     pub authentication: Option<SAuthentication>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "i", default, skip_serializing_if = "Option::is_none")]
     pub execinfo: Option<SInfo>,
-    #[serde(borrow, default, skip_serializing_if = "Option::is_none")]
+    #[serde(borrow, alias = "w", default, skip_serializing_if = "Option::is_none")]
     pub workdir: Option<DWorkdirEither<'a>>, // we only need to store the enforced workdir, if existing.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "t", default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<STimeout>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "k", default, skip_serializing_if = "Option::is_none")]
     pub password: Option<SPassword>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "y", default, skip_serializing_if = "Option::is_none")]
     pub tty: Option<STty>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "u", default, skip_serializing_if = "Option::is_none")]
     pub umask: Option<SUMask>,
     #[serde(default, flatten)]
     pub extra_fields: Value,
@@ -486,15 +510,26 @@ impl<'c, 'a> BorrowedOptStack<'c, 'a> {
         [self.task, self.role, self.config].into_iter().flatten()
     }
 
+    /// How long, how many times and where an authentication stays valid: each field from the
+    /// most specific level that sets it, or the build-time default. A level that only changes the
+    /// duration keeps the scope and the number of uses of the levels above: a protection does not
+    /// disappear because a lower level does not mention it.
     pub fn calc_timeout(&self) -> STimeout {
-        self.get_opt_iter_rev()
-            .find_map(|o| o.timeout.clone())
-            .unwrap_or_else(|| STimeout {
-                type_field: Some(TIMEOUT_TYPE),
-                duration: TIMEOUT_DURATION,
-                max_usage: TIMEOUT_MAX_USAGE,
-                extra_fields: Map::new(),
-            })
+        let timeouts = || self.get_opt_iter_rev().filter_map(|o| o.timeout.as_ref());
+        STimeout {
+            type_field: Some(
+                timeouts()
+                    .find_map(|timeout| timeout.type_field)
+                    .unwrap_or(TIMEOUT_TYPE),
+            ),
+            duration: timeouts()
+                .find_map(|timeout| timeout.duration)
+                .or(TIMEOUT_DURATION),
+            max_usage: timeouts()
+                .find_map(|timeout| timeout.max_usage)
+                .or(TIMEOUT_MAX_USAGE),
+            extra_fields: Map::new(),
+        }
     }
     /// The password tries and delay: each one from the most specific level that sets it, or the
     /// build-time default.
@@ -600,6 +635,7 @@ mod tests {
     use super::*;
     use crate::Cred;
     use indexmap::{IndexMap, IndexSet};
+    use rootasrole_core::database::options::TimestampType;
     use rootasrole_core::util::{ENV_DELETE_LIST, ENV_KEEP_LIST};
 
     #[test]
@@ -950,6 +986,53 @@ mod tests {
                 tries: std::num::NonZeroU8::new(5).unwrap(),
                 delay: jiff::SignedDuration::from_secs(1),
             }
+        );
+    }
+
+    // each field of the timeout comes from the most specific level that sets it: a task that
+    // only changes the duration keeps the scope and the single use of its role
+    #[test]
+    fn test_calc_timeout_inherits_each_field() {
+        let stack = BorrowedOptStack::new(None);
+        let defaults = stack.calc_timeout();
+        assert_eq!(defaults.type_field, Some(TIMEOUT_TYPE));
+        assert_eq!(defaults.duration, TIMEOUT_DURATION);
+        assert_eq!(defaults.max_usage, TIMEOUT_MAX_USAGE);
+
+        let role: Opt = serde_json::from_str(
+            r#"{"timeout": {"type": "tty", "duration": "00:01:00", "max_usage": 1}}"#,
+        )
+        .unwrap();
+        let timeout = |task: &'static str| {
+            let task: Opt = serde_json::from_str(task).unwrap();
+            let stack = BorrowedOptStack {
+                config: None,
+                role: Some(&role),
+                task: Some(&task),
+            };
+            let timeout = stack.calc_timeout();
+            (timeout.type_field, timeout.duration, timeout.max_usage)
+        };
+        let minute = jiff::SignedDuration::from_secs(60);
+        assert_eq!(
+            timeout(r#"{"timeout": {"duration": "00:10:00"}}"#),
+            (
+                Some(TimestampType::TTY),
+                Some(jiff::SignedDuration::from_secs(600)),
+                Some(1)
+            )
+        );
+        assert_eq!(
+            timeout(r#"{"timeout": {"max_usage": 5}}"#),
+            (Some(TimestampType::TTY), Some(minute), Some(5))
+        );
+        assert_eq!(
+            timeout(r#"{"timeout": {"type": "ppid"}}"#),
+            (Some(TimestampType::PPID), Some(minute), Some(1))
+        );
+        assert_eq!(
+            timeout("{}"),
+            (Some(TimestampType::TTY), Some(minute), Some(1))
         );
     }
 

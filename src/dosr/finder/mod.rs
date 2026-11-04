@@ -19,23 +19,24 @@ use nix::{
     unistd::{Group, User, getgrouplist},
 };
 use options::BorrowedOptStack;
+use rootasrole_core::database::migrations::read_as_is;
 use rootasrole_core::{
     Cred,
     database::{
         actor::{DGroupType, DGroups, NameLookupCache},
-        env::EnvFilter,
+        env::{EnvFilter, command_var},
         options::{SAuthentication, SBounding, SPrivileged, STimeout, SUMask, TtyOwner},
         score::{ActorMatchMin, CmdMin, CmdOrder, HardenedBool, Score, hardened_bool_from_bool},
         structs::GroupsFrom,
         workdir::ResolvedWorkdir,
     },
-    util::{StorageMethod, check_immutable, check_others_permissions, read_with_privileges},
+    util::{StorageMethod, cbor_at_end, check_immutable, check_others_permissions},
 };
 use serde::de::DeserializeSeed;
 
 use crate::{
     Cli,
-    error::{SrError, SrResult},
+    error::{Failure, SrError, SrResult},
     finder::de::{
         cred::{CredData, CredOwnedData},
         settings::read_storage,
@@ -117,7 +118,8 @@ pub struct BestExecSettings {
 /// It efficiently check the policy based on the user args, skips unnecessary policy info etc.
 /// The main focus here is to avoid at maximum any allocation.
 /// # Returns
-/// When a policy match was found, it returns all needed information, otherwise, it returns an ``SrError``.
+/// When a policy match was found, it returns all needed information, otherwise a [`Failure`]: the
+/// error, and whether the log says why dosr refused the policy, or a file of it.
 pub fn find_best_exec_settings<'de: 'a, 'a, P>(
     cli: &'a Cli,
     cred: &'a Cred,
@@ -126,7 +128,7 @@ pub fn find_best_exec_settings<'de: 'a, 'a, P>(
     rar_cfg_type: StorageMethod,
     env_vars: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
     env_path: &[&str],
-) -> SrResult<BestExecSettings>
+) -> Result<BestExecSettings, Failure>
 where
     P: AsRef<Path>,
 {
@@ -137,106 +139,184 @@ where
         .into_iter()
         .map(|(key, value)| (key.into(), value.into()))
         .collect();
-    let settings_file = read_storage(rar_cfg_path, rar_cfg_type)?;
+    let rar_cfg_path = rar_cfg_path.as_ref();
+    let settings_file = read_storage(rar_cfg_path, rar_cfg_type).map_err(|e| {
+        // the check of its permissions logs why it refuses the root file, and an open refused
+        // means that dosr lacks its capabilities, which dosr_main says
+        if e.kind() != std::io::ErrorKind::PermissionDenied {
+            error!("{}: {e}", rar_cfg_path.display());
+        }
+        Failure::logged(e.into())
+    })?;
     let storage_settings = settings_file.data.data.settings.unwrap_or_default();
     let immutable = storage_settings.immutable.unwrap_or(false);
     let file_path = storage_settings
         .path
         .unwrap_or_else(|| rar_cfg_data_path.as_ref().to_path_buf());
-    let parse_file = |file_path: &Path| -> SrResult<BestExecSettings> {
+    let parse_file = |file_path: &Path| -> Result<BestExecSettings, FileError> {
         let config_finder_deserializer = ConfigFinderDeserializer { cli, cred };
-        let file = read_with_privileges(file_path)?;
-        check_others_permissions(file_path, &file)?;
+        #[expect(
+            deprecated,
+            reason = "the policy file that the root file names, at a path of the administrator; the descriptor is checked next"
+        )]
+        let file = rootasrole_core::util::read_with_privileges(file_path).map_err(|e| {
+            error!("{}: {e}", file_path.display());
+            FileError::Refused(e.into())
+        })?;
+        // both checks log why they refuse the file
+        check_others_permissions(file_path, &file).map_err(|e| FileError::Refused(e.into()))?;
         if immutable {
             // a file added to the policy without CAP_LINUX_IMMUTABLE is not trusted
-            check_immutable(file_path, &file)?;
+            check_immutable(file_path, &file).map_err(|e| FileError::Refused(e.into()))?;
         }
         let reader = BufReader::new(file);
-        match settings_file.data.data.method {
+        let settings = match settings_file.data.data.method {
+            // what follows the policy in the file makes it invalid, as for chsr
             StorageMethod::CBOR => {
                 let mut io_reader = cbor4ii::core::utils::IoReader::new(reader);
-                Ok(BestExecSettings::evaluate(
+                let data = config_finder_deserializer
+                    .deserialize(&mut cbor4ii::serde::Deserializer::new(&mut io_reader))
+                    .map_err(|e| e.to_string())
+                    .and_then(|data| {
+                        cbor_at_end(&mut io_reader)
+                            .map(|()| data)
+                            .map_err(|e| e.to_string())
+                    });
+                BestExecSettings::evaluate(
                     cli,
                     cred,
-                    &config_finder_deserializer
-                        .deserialize(&mut cbor4ii::serde::Deserializer::new(&mut io_reader))
-                        .map_err(|e| {
-                            debug!("Error deserializing CBOR: {e}");
-                            SrError::ConfigurationError
-                        })?,
+                    &readable(file_path, data).map_err(FileError::Refused)?,
                     env_vars.iter().cloned(),
                     env_path,
-                )?)
+                )
             }
             StorageMethod::JSON => {
-                let io_reader = serde_json::de::IoRead::new(reader);
-                Ok(BestExecSettings::evaluate(
+                let mut deserializer =
+                    serde_json::Deserializer::new(serde_json::de::IoRead::new(reader));
+                let data = config_finder_deserializer
+                    .deserialize(&mut deserializer)
+                    .and_then(|data| deserializer.end().map(|()| data));
+                BestExecSettings::evaluate(
                     cli,
                     cred,
-                    &config_finder_deserializer
-                        .deserialize(&mut serde_json::Deserializer::new(io_reader))
-                        .map_err(|e| {
-                            debug!("Error deserializing JSON: {e}");
-                            SrError::ConfigurationError
-                        })?,
+                    &readable(file_path, data).map_err(FileError::Refused)?,
                     env_vars.iter().cloned(),
                     env_path,
-                )?)
+                )
             }
-        }
+        };
+        settings.map_err(|e| match e {
+            SrError::PermissionDenied => FileError::Denied,
+            e => {
+                error!(
+                    "{}: the policy cannot be evaluated: {e}",
+                    file_path.display()
+                );
+                FileError::Refused(e)
+            }
+        })
     };
 
     if file_path.is_dir() {
-        let mut entries: Vec<PathBuf> = fs::read_dir(&file_path)
-            .map_err(|e| {
-                debug!(
-                    "Failed to read policy directory {}: {e}",
-                    file_path.display()
-                );
-                SrError::ConfigurationError
-            })?
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| path.is_file())
-            .collect();
-        entries.sort();
-
-        let mut best: Option<BestExecSettings> = None;
-        let mut parsed_any = false;
-
-        for entry in entries {
-            let result = parse_file(&entry);
-            match result {
-                Ok(settings) => {
-                    parsed_any = true;
-                    BestExecSettings::keep_best(&mut best, settings);
-                }
-                Err(SrError::PermissionDenied) => {
-                    parsed_any = true;
-                }
-                Err(err) => {
-                    debug!("Skipping policy file {}: {err}", entry.display());
-                }
-            }
-        }
-
-        // a tie is only refused once the best tasks of every file are compared: another file
-        // can have a better task
-        return best
-            .ok_or({
-                if parsed_any {
-                    SrError::PermissionDenied
-                } else {
-                    SrError::ConfigurationError
-                }
-            })
-            .and_then(BestExecSettings::refuse_tie)
-            .and_then(BestExecSettings::with_target_groups);
+        return best_of_directory(&file_path, parse_file);
     }
 
-    parse_file(&file_path)
-        .and_then(BestExecSettings::refuse_tie)
-        .and_then(BestExecSettings::with_target_groups)
+    let settings = parse_file(&file_path).map_err(|e| match e {
+        FileError::Denied => Failure::from(SrError::PermissionDenied),
+        FileError::Refused(error) => Failure::logged(error),
+    })?;
+    Ok(BestExecSettings::refuse_tie(settings).and_then(BestExecSettings::with_target_groups)?)
+}
+
+/// The best task of the files of the policy directory `dir`, compared in the order of their
+/// names: a file that dosr refuses is skipped, the others still apply.
+fn best_of_directory(
+    dir: &Path,
+    parse_file: impl Fn(&Path) -> Result<BestExecSettings, FileError>,
+) -> Result<BestExecSettings, Failure> {
+    let mut entries: Vec<PathBuf> = fs::read_dir(dir)
+        .map_err(|e| {
+            error!("{}: {e}", dir.display());
+            Failure::logged(SrError::ConfigurationError)
+        })?
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file())
+        .collect();
+    entries.sort();
+
+    let mut best: Option<BestExecSettings> = None;
+    let mut parsed_any = false;
+    let mut refused = false;
+
+    for entry in entries {
+        let result = parse_file(&entry);
+        match result {
+            Ok(settings) => {
+                parsed_any = true;
+                BestExecSettings::keep_best(&mut best, settings);
+            }
+            Err(FileError::Denied) => {
+                parsed_any = true;
+            }
+            // not trusted, it counts as read, like a file that denies the command
+            Err(FileError::Refused(SrError::PermissionDenied)) => {
+                parsed_any = true;
+                refused = true;
+            }
+            Err(FileError::Refused(err)) => {
+                warn!("Skipping policy file {}: {err}", entry.display());
+                refused = true;
+            }
+        }
+    }
+
+    // a tie is only refused once the best tasks of every file are compared: another file
+    // can have a better task
+    best.ok_or({
+        if parsed_any {
+            SrError::PermissionDenied
+        } else {
+            SrError::ConfigurationError
+        }
+    })
+    .and_then(BestExecSettings::refuse_tie)
+    .and_then(BestExecSettings::with_target_groups)
+    .map_err(|error| Failure {
+        error,
+        reason_logged: refused,
+    })
+}
+
+/// Why a file of the policy gives no task.
+enum FileError {
+    /// It allows nothing of the command.
+    Denied,
+    /// dosr refused it, and the log says why: it cannot be opened, other users can write it, it
+    /// lacks the immutable flag, it is invalid, of another version (see [`readable`]), or its
+    /// evaluation failed.
+    Refused(SrError),
+}
+
+/// The policy of `path`, when it is valid and dosr reads it as it is: written by a version that
+/// gives it the same meaning (`read_as_is`). Another one is refused rather than read with another
+/// meaning, a file of a policy directory is then skipped. `chsr upgrade` upgrades an older one,
+/// `chsr upgrade --to` of a newer version writes a newer one for this version.
+///
+/// The reason is only in the log: dosr shows nothing of the policy to the user who runs it.
+fn readable<'a, E: std::fmt::Display>(
+    path: &Path,
+    data: Result<DConfigFinder<'a>, E>,
+) -> SrResult<DConfigFinder<'a>> {
+    let data = data.map_err(|e| {
+        error!("{}: the policy is invalid: {e}", path.display());
+        SrError::ConfigurationError
+    })?;
+    read_as_is(data.version.as_deref()).map_err(|e| {
+        error!("{}: {e}", path.display());
+        SrError::ConfigurationError
+    })?;
+    Ok(data)
 }
 
 /// The user and the groups of the credentials of a task, or what does not resolve: a name that
@@ -292,7 +372,9 @@ fn login_groups(user: &User) -> nix::Result<Vec<Group>> {
 
 impl BestExecSettings {
     /// The settings of the best task of the policy `data` for the command line, refused when
-    /// another task is as good as the best one.
+    /// another task is as good as the best one; for the tests and the fuzz targets, dosr itself
+    /// goes through [`find_best_exec_settings`].
+    #[cfg(any(test, feature = "fuzzing"))]
     pub(crate) fn retrieve_settings<'a>(
         cli: &'a Cli,
         cred: &'a Cred,
@@ -404,15 +486,7 @@ impl BestExecSettings {
                 opt_stack.calc_path(env_path),
                 cred,
                 result.cred.setuid.as_ref(),
-                format!(
-                    "{}{}",
-                    cli.cmd_path.display(),
-                    if cli.cmd_args.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" {}", cli.cmd_args.join(" "))
-                    }
-                ),
+                command_var(&cli.cmd_path.display().to_string(), &cli.cmd_args),
             )
             .ok_or_else(|| {
                 error!("Internal Error with environment behavior");
@@ -600,50 +674,54 @@ impl BestExecSettings {
             cli, data, opt_stack, self, &mut score,
         ))?;
         let task_address = std::ptr::from_ref(data.task).addr();
-        if task_final_path.is_some()
+        let Some(final_path) = task_final_path else {
+            return Ok(true);
+        };
+        let better = score.better_fully(&self.score);
+        // as good as the best task, which is fully matching since this one is not better
+        let tie = !better
             && score.fully_matching()
-            && !score.better_fully(&self.score)
             && score.cmp(&self.score) == Ordering::Equal
-            && self.best_task != Some(task_address)
-        {
-            // as good as the best task, which is fully matching since this one is not better
+            && self.best_task != Some(task_address);
+        if !better && !tie {
+            return Ok(true);
+        }
+        // a task whose user or groups do not exist cannot run as written: it is left out like a
+        // task that does not match, so that it tells nothing more before the authentication, and
+        // is no tie for a task as good as it, whatever the order of the tasks
+        let (setuid, setgroups) = match resolve_cred(&data.cred) {
+            Ok(cred) => cred,
+            Err(missing) => {
+                error!(
+                    "The task {}/{} cannot run: {missing} does not exist or cannot be read",
+                    data.role().role().role,
+                    data.id
+                );
+                return Ok(true);
+            }
+        };
+        if tie {
             debug!("task {:?} is as good as the best task", data.id);
             self.tie
                 .get_or_insert_with(|| format!("{}/{}", data.role().role().role, data.id));
+            return Ok(true);
         }
-        if let Some(final_path) = task_final_path
-            && score.better_fully(&self.score)
-        {
-            // a task whose user or groups do not exist cannot run as written: it is left out like
-            // a task that does not match, so that it tells nothing more before the authentication
-            let (setuid, setgroups) = match resolve_cred(&data.cred) {
-                Ok(cred) => cred,
-                Err(missing) => {
-                    error!(
-                        "The task {}/{} cannot run: {missing} does not exist or cannot be read",
-                        data.role().role().role,
-                        data.id
-                    );
-                    return Ok(true);
-                }
-            };
-            debug!("found better task settings");
-            self.best_task = Some(task_address);
-            // a tie with the previous best task does not matter anymore
-            self.tie = None;
-            self.final_path = final_path;
-            self.role = data.role().role().role.to_string();
-            self.task = Some(data.id.to_string());
-            self.env_path = task_env_path.unwrap_or_else(|| temp_opt_stack.calc_path(env_path));
-            self.score = score;
-            self.cred.setuid = setuid;
-            self.cred.setgroups = setgroups;
-            self.cred.groups_from = data.cred.groups_from;
-            self.cred.caps = data.cred.caps;
-            opt_stack.set_role(data);
-            opt_stack.set_task(data);
-            debug!("resulting settings: {self:?}");
-        }
+        debug!("found better task settings");
+        self.best_task = Some(task_address);
+        // a tie with the previous best task does not matter anymore
+        self.tie = None;
+        self.final_path = final_path;
+        self.role = data.role().role().role.to_string();
+        self.task = Some(data.id.to_string());
+        self.env_path = task_env_path.unwrap_or_else(|| temp_opt_stack.calc_path(env_path));
+        self.score = score;
+        self.cred.setuid = setuid;
+        self.cred.setgroups = setgroups;
+        self.cred.groups_from = data.cred.groups_from;
+        self.cred.caps = data.cred.caps;
+        opt_stack.set_role(data);
+        opt_stack.set_task(data);
+        debug!("resulting settings: {self:?}");
 
         Ok(true)
     }
@@ -721,6 +799,7 @@ mod tests {
     use test_log::test;
 
     mod perf;
+    mod properties;
 
     // Helper: Dummy implementations for required traits/structs
     fn dummy_cli() -> Cli {
@@ -1137,6 +1216,26 @@ mod tests {
         }
     }
 
+    // a task whose user does not exist is left out like a task that does not match: it is no
+    // tie for a task as good as it, in any order
+    #[test]
+    fn test_task_left_out_is_no_tie_in_any_order() {
+        let task = |name: &str, user: &str| {
+            format!(
+                r#"{{"name":"{name}","cred":{{"setuid":"{user}"}},"commands":["/usr/bin/ls"]}}"#
+            )
+        };
+        let valid = task("valid", "nobody");
+        let broken = task("broken", "rar-no-such-user");
+        for tasks in orders(&[&valid, &broken]) {
+            assert_eq!(
+                best_task(&tasks, "/usr/bin/ls").map(|(task, ..)| task).ok(),
+                Some("valid".to_string()),
+                "{tasks:?}"
+            );
+        }
+    }
+
     #[test]
     fn test_losing_task_does_not_leak_into_the_result() {
         let a = task_json("a", &[], r#"["/usr/bin/ls"]"#, "A_VAR", "/usr/bin");
@@ -1322,8 +1421,9 @@ mod tests {
         }])
     }
 
-    /// The task that dosr chooses for `cmd`, from the root settings file `root`.
-    fn find(root: &Path, method: StorageMethod, cmd: &str) -> SrResult<String> {
+    /// The task that dosr chooses for `cmd`, from the root settings file `root`, or why it
+    /// chooses none, and whether the log says why.
+    fn decide(root: &Path, method: StorageMethod, cmd: &str) -> Result<String, Failure> {
         let cli = Cli::builder().cmd_path(cmd.to_string()).build();
         find_best_exec_settings(
             &cli,
@@ -1335,6 +1435,11 @@ mod tests {
             &["/usr/bin"],
         )
         .map(|settings| settings.task.unwrap_or_default())
+    }
+
+    /// The task that dosr chooses for `cmd`, from the root settings file `root`.
+    fn find(root: &Path, method: StorageMethod, cmd: &str) -> SrResult<String> {
+        decide(root, method, cmd).map_err(|failure| failure.error)
     }
 
     /// The final policy of the book, under its heading in `book/src/configuration.md`, or `None`
@@ -1698,6 +1803,186 @@ mod tests {
         ));
     }
 
+    // a file that holds more than its value (two policies put together, the end of a longer former
+    // content) is refused, in JSON and in CBOR, as the root file and as the policy file: the CBOR
+    // reader stopped after the first value, and dosr did not look at the end of JSON either; the
+    // white space after JSON is not data
+    #[test]
+    fn test_data_after_the_policy_is_refused() {
+        let append = |path: &Path, bytes: &[u8]| {
+            use std::io::Write;
+            std::fs::OpenOptions::new()
+                .append(true)
+                .open(path)
+                .unwrap()
+                .write_all(bytes)
+                .unwrap();
+        };
+        for method in [StorageMethod::JSON, StorageMethod::CBOR] {
+            let after: &[u8] = match method {
+                StorageMethod::JSON => b"{}",
+                StorageMethod::CBOR => &[0xf6],
+            };
+            let dir = PolicyDir::new(&format!("after-{method}"));
+            let root = dir.0.join("rootasrole");
+            let roles = user_role("t", "/usr/bin/ls", &[]);
+            write_file(&root, &root_settings(method, &root, roles), method, 0o600);
+            if method == StorageMethod::JSON {
+                append(&root, b"\n");
+            }
+            assert_eq!(find(&root, method, "/usr/bin/ls").unwrap(), "t", "{method}");
+            append(&root, after);
+            assert!(
+                find(&root, method, "/usr/bin/ls").is_err(),
+                "{method}: root file"
+            );
+
+            let data = dir.0.join("policy");
+            let settings = root_settings(method, &data, serde_json::json!([]));
+            write_file(&root, &settings, method, 0o600);
+            write_file(
+                &data,
+                &policy(user_role("t", "/usr/bin/ls", &[])),
+                method,
+                0o600,
+            );
+            assert_eq!(find(&root, method, "/usr/bin/ls").unwrap(), "t", "{method}");
+            append(&data, after);
+            assert!(
+                find(&root, method, "/usr/bin/ls").is_err(),
+                "{method}: policy file"
+            );
+            // the root file alone: only its own reader sees what follows its settings
+            write_file(
+                &data,
+                &policy(user_role("t", "/usr/bin/ls", &[])),
+                method,
+                0o600,
+            );
+            append(&root, after);
+            assert!(
+                find(&root, method, "/usr/bin/ls").is_err(),
+                "{method}: root settings"
+            );
+        }
+    }
+
+    // the layout that chsr convert -r cbor writes: a root file in JSON that names a policy file
+    // in CBOR, read in the format that the root file gives
+    #[test]
+    fn test_find_best_exec_settings_root_names_a_cbor_policy_file() {
+        let dir = PolicyDir::new("cbor-policy-file");
+        let root = dir.0.join("rootasrole.json");
+        let data = dir.0.join("rootasrole.bin");
+        let settings = root_settings(StorageMethod::CBOR, &data, serde_json::json!([]));
+        write_file(&root, &settings, StorageMethod::JSON, 0o600);
+        let roles = policy(user_role("t", "/usr/bin/ls", &[]));
+        write_file(&data, &roles, StorageMethod::CBOR, 0o600);
+        assert_eq!(
+            find(&root, StorageMethod::JSON, "/usr/bin/ls").unwrap(),
+            "t"
+        );
+    }
+
+    // dosr reads a policy as it is, only from the version since which it means the same: a 4.0.3
+    // policy that chsr upgrade did not migrate (it could not load it, or did not run) gave the
+    // keep list of the global options to a task in delete mode, which 4.0.3 did not, and a newer
+    // policy may mean more than what this version reads in it
+    #[test]
+    fn test_find_best_exec_settings_reads_a_policy_only_at_a_known_version() {
+        let dir = PolicyDir::new("versions");
+        let root = dir.0.join("rootasrole.json");
+        let data = dir.0.join("policy.json");
+        let at = |version: Option<&str>| {
+            let mut document = policy(user_role("t", "/usr/bin/ls", &[]));
+            match version {
+                Some(version) => document["version"] = Value::from(version),
+                None => drop(document.as_object_mut().unwrap().remove("version")),
+            }
+            document
+        };
+        let newer = format!("{}.0.0", rootasrole_core::PACKAGE_VERSION.major + 1);
+        let refused = [None, Some("4.0.3"), Some("3.2.0"), Some("x"), Some(&newer)];
+        // a policy file named by the root file
+        let settings = root_settings(StorageMethod::JSON, &data, serde_json::json!([]));
+        write_file(&root, &settings, StorageMethod::JSON, 0o600);
+        for version in refused {
+            write_file(&data, &at(version), StorageMethod::JSON, 0o600);
+            assert!(
+                matches!(
+                    find(&root, StorageMethod::JSON, "/usr/bin/ls"),
+                    Err(SrError::ConfigurationError)
+                ),
+                "{version:?}"
+            );
+        }
+        for version in ["4.1.0", &rootasrole_core::PACKAGE_VERSION.to_string()] {
+            write_file(&data, &at(Some(version)), StorageMethod::JSON, 0o600);
+            assert_eq!(
+                find(&root, StorageMethod::JSON, "/usr/bin/ls").unwrap(),
+                "t",
+                "{version}"
+            );
+        }
+        // the storage settings of the root file are read at any version, not its policy
+        let mut settings = root_settings(StorageMethod::JSON, &data, serde_json::json!([]));
+        settings["version"] = Value::from("3.2.0");
+        write_file(&root, &settings, StorageMethod::JSON, 0o600);
+        assert_eq!(
+            find(&root, StorageMethod::JSON, "/usr/bin/ls").unwrap(),
+            "t"
+        );
+        let settings = root_settings(
+            StorageMethod::JSON,
+            &root,
+            user_role("t", "/usr/bin/ls", &[]),
+        );
+        let mut old = settings.clone();
+        old["version"] = Value::from("4.0.3");
+        write_file(&root, &old, StorageMethod::JSON, 0o600);
+        assert!(matches!(
+            find(&root, StorageMethod::JSON, "/usr/bin/ls"),
+            Err(SrError::ConfigurationError)
+        ));
+        write_file(&root, &settings, StorageMethod::JSON, 0o600);
+        assert_eq!(
+            find(&root, StorageMethod::JSON, "/usr/bin/ls").unwrap(),
+            "t"
+        );
+        // in a directory, only the file that is not read as it is is skipped, in CBOR too
+        let directory = dir.0.join("rootasrole.d");
+        std::fs::create_dir(&directory).unwrap();
+        let settings = root_settings(StorageMethod::CBOR, &directory, serde_json::json!([]));
+        write_file(&root, &settings, StorageMethod::JSON, 0o600);
+        let mut current = policy(user_role("t", "/usr/bin/ls", &[]));
+        current["roles"][0]["name"] = Value::from("current");
+        write_file(
+            &directory.join("current.bin"),
+            &current,
+            StorageMethod::CBOR,
+            0o600,
+        );
+        let mut old = at(Some("4.0.3"));
+        old["roles"][0]["tasks"][0]["commands"] = serde_json::json!(["/usr/bin/cat"]);
+        write_file(&directory.join("old.bin"), &old, StorageMethod::CBOR, 0o600);
+        assert_eq!(
+            find(&root, StorageMethod::JSON, "/usr/bin/ls").unwrap(),
+            "t"
+        );
+        assert!(matches!(
+            find(&root, StorageMethod::JSON, "/usr/bin/cat"),
+            Err(SrError::PermissionDenied)
+        ));
+        // the version once: the second one of a JSON file would be the one checked
+        std::fs::write(&data, r#"{"version":"4.0.3","version":"4.1.0","roles":[]}"#).unwrap();
+        let settings = root_settings(StorageMethod::JSON, &data, serde_json::json!([]));
+        write_file(&root, &settings, StorageMethod::JSON, 0o600);
+        assert!(matches!(
+            find(&root, StorageMethod::JSON, "/usr/bin/ls"),
+            Err(SrError::ConfigurationError)
+        ));
+    }
+
     #[test]
     fn test_find_best_exec_settings_invalid_files() {
         let dir = PolicyDir::new("invalid");
@@ -1718,6 +2003,62 @@ mod tests {
             find(&root, StorageMethod::JSON, "/usr/bin/ls"),
             Err(SrError::ConfigurationError)
         ));
+    }
+
+    // dosr shows nothing of the policy, but tells the user where to read why it refused it, or a
+    // file of it, even when the other files only deny the command
+    #[test]
+    fn test_failure_says_whether_the_log_says_why() {
+        let json = StorageMethod::JSON;
+        let dir = PolicyDir::new("refused");
+        let root = dir.0.join("rootasrole.json");
+        let directory = dir.0.join("rootasrole.d");
+        std::fs::create_dir(&directory).unwrap();
+        let refused = directory.join("refused.json");
+        let ls = policy(user_role("t", "/usr/bin/ls", &[]));
+        let mut unversioned = policy(user_role("t", "/usr/bin/cat", &[]));
+        unversioned.as_object_mut().unwrap().remove("version");
+        let mut invalid = policy(user_role("t", "/usr/bin/cat", &[]));
+        invalid["roles"][0]["ssd"] = Value::from(3);
+        api::register_plugins();
+        let cat = || decide(&root, json, "/usr/bin/cat").unwrap_err();
+        let failure = |error, reason_logged| Failure {
+            error,
+            reason_logged,
+        };
+        // a policy directory: the other files still apply
+        let settings = root_settings(json, &directory, serde_json::json!([]));
+        write_file(&root, &settings, json, 0o600);
+        write_file(&directory.join("ls.json"), &ls, json, 0o600);
+        assert_eq!(cat(), failure(SrError::PermissionDenied, false));
+        write_file(&refused, &unversioned, json, 0o600);
+        assert_eq!(cat(), failure(SrError::PermissionDenied, true));
+        write_file(&refused, &ls, json, 0o602);
+        assert_eq!(cat(), failure(SrError::PermissionDenied, true));
+        if cfg!(feature = "ssd") {
+            write_file(&refused, &invalid, json, 0o600);
+            assert_eq!(cat(), failure(SrError::PermissionDenied, true));
+        }
+        // a policy file
+        let settings = root_settings(json, &refused, serde_json::json!([]));
+        write_file(&root, &settings, json, 0o600);
+        write_file(&refused, &ls, json, 0o600);
+        assert_eq!(cat(), failure(SrError::PermissionDenied, false));
+        write_file(&refused, &unversioned, json, 0o600);
+        assert_eq!(cat(), failure(SrError::ConfigurationError, true));
+        write_file(&refused, &ls, json, 0o602);
+        assert_eq!(cat(), failure(SrError::PermissionDenied, true));
+        if cfg!(feature = "ssd") {
+            write_file(&refused, &invalid, json, 0o600);
+            assert_eq!(cat(), failure(SrError::ConfigurationError, true));
+        }
+        std::fs::remove_file(&refused).unwrap();
+        assert_eq!(cat(), failure(SrError::ExecutionFailed, true));
+        // a root file that cannot be read, or none
+        std::fs::write(&root, "not a root file").unwrap();
+        assert_eq!(cat(), failure(SrError::SystemError, true));
+        std::fs::remove_file(&root).unwrap();
+        assert_eq!(cat(), failure(SrError::ExecutionFailed, true));
     }
 
     /// The role, task and command chosen for `cmd` with the plugins, from `roles`.
@@ -1889,6 +2230,19 @@ mod tests {
             choose_after_failed_lookups(&roles, "/usr/bin/cat", &["other"]).unwrap(),
             "ops"
         );
+        // a role that another names in its ssd takes part in the conflict: disabled too
+        let roles = serde_json::json!([
+            role_json("dev", false, None, &serde_json::json!({"ssd": ["auditor"]})),
+            role_json("auditor", true, Some("/usr/bin/ls"), &none),
+        ]);
+        assert_eq!(
+            choose_after_failed_lookups(&roles, "/usr/bin/ls", &[]).unwrap(),
+            "auditor"
+        );
+        assert!(matches!(
+            choose_after_failed_lookups(&roles, "/usr/bin/ls", &["dev"]),
+            Err(SrError::PermissionDenied)
+        ));
     }
 
     #[cfg(all(feature = "hierarchy", feature = "ssd"))]
@@ -1994,6 +2348,60 @@ mod tests {
         ]);
         let (role, task) = choose_role(&roles, "/usr/bin/ls", "senior").unwrap();
         assert_eq!(task.as_deref(), Some("junior_task"), "{role}");
+    }
+
+    // through a chain of ancestors: a failed lookup disables the ancestor that takes part in a
+    // separation of duties, not the others; dosr -r names a role that the user is an actor of,
+    // which gives the tasks of all its ancestors, and not an ancestor itself
+    #[cfg(all(feature = "hierarchy", feature = "ssd"))]
+    #[test]
+    fn test_failed_lookup_and_role_filter_through_ancestors() {
+        let none = serde_json::json!({});
+        let roles = serde_json::json!([
+            role_json(
+                "senior",
+                true,
+                None,
+                &serde_json::json!({"parents": ["middle"]})
+            ),
+            role_json(
+                "middle",
+                false,
+                Some("/usr/bin/cat"),
+                &serde_json::json!({"parents": ["junior"]})
+            ),
+            role_json(
+                "junior",
+                false,
+                Some("/usr/bin/ls"),
+                &serde_json::json!({"ssd": ["auditor"]})
+            ),
+            role_json("auditor", false, None, &none),
+            role_json("other", false, None, &none),
+        ]);
+        assert_eq!(
+            choose_after_failed_lookups(&roles, "/usr/bin/ls", &[]).unwrap(),
+            "junior"
+        );
+        assert!(matches!(
+            choose_after_failed_lookups(&roles, "/usr/bin/ls", &["other"]),
+            Err(SrError::PermissionDenied)
+        ));
+        assert_eq!(
+            choose_after_failed_lookups(&roles, "/usr/bin/cat", &["other"]).unwrap(),
+            "middle"
+        );
+        let (_, task) = choose_role(&roles, "/usr/bin/ls", "senior").unwrap();
+        assert_eq!(task.as_deref(), Some("junior_task"));
+        for ancestor in ["middle", "junior"] {
+            assert!(
+                matches!(
+                    choose_role(&roles, "/usr/bin/ls", ancestor),
+                    Err(SrError::PermissionDenied)
+                ),
+                "{ancestor}"
+            );
+        }
     }
 
     #[test]
@@ -2146,7 +2554,11 @@ mod tests {
             choose(&roles, "/usr/bin/cat"),
             Err(SrError::PermissionDenied)
         ));
-        assert!(choose(&roles, "/usr/bin/ls").is_ok());
+        // and junior, held through senior, is excluded by auditor: the conflict holds both ways
+        assert!(matches!(
+            choose(&roles, "/usr/bin/ls"),
+            Err(SrError::PermissionDenied)
+        ));
     }
 
     #[cfg(all(feature = "hierarchy", feature = "ssd"))]
@@ -2160,29 +2572,149 @@ mod tests {
             None,
             &serde_json::json!({"parents": ["a", "b"]}),
         );
-        // a declares the conflict: its tasks are not inherited, those of b are
+        // declared on one side or on both: no task of either is inherited
+        for b_ssd in [none, ssd("a")] {
+            let roles = serde_json::json!([
+                senior,
+                role_json("a", false, Some("/usr/bin/ls"), &ssd("b")),
+                role_json("b", false, Some("/usr/bin/cat"), &b_ssd),
+            ]);
+            for cmd in ["/usr/bin/ls", "/usr/bin/cat"] {
+                assert!(
+                    matches!(choose(&roles, cmd), Err(SrError::PermissionDenied)),
+                    "{cmd} {b_ssd}"
+                );
+            }
+        }
+    }
+
+    // the hierarchy is transitive: a role inherits the tasks of its parents, of their parents,
+    // and so on, each once even when the parents form a cycle (decided by the maintainer on
+    // 2026-10-28)
+    #[cfg(feature = "hierarchy")]
+    #[test]
+    fn test_hierarchy_is_transitive() {
+        let parents = |names: &[&str]| serde_json::json!({ "parents": names });
         let roles = serde_json::json!([
-            senior,
-            role_json("a", false, Some("/usr/bin/ls"), &ssd("b")),
-            role_json("b", false, Some("/usr/bin/cat"), &none),
+            role_json("senior", true, None, &parents(&["middle"])),
+            role_json("middle", false, Some("/usr/bin/cat"), &parents(&["junior"])),
+            role_json("junior", false, Some("/usr/bin/ls"), &serde_json::json!({})),
         ]);
-        assert!(matches!(
-            choose(&roles, "/usr/bin/ls"),
-            Err(SrError::PermissionDenied)
-        ));
-        assert!(choose(&roles, "/usr/bin/cat").is_ok());
-        // declared on both sides: no task of either
+        assert_eq!(choose(&roles, "/usr/bin/ls").unwrap().0, "junior");
+        assert_eq!(choose(&roles, "/usr/bin/cat").unwrap().0, "middle");
+        // a cycle of parents ends
         let roles = serde_json::json!([
-            senior,
-            role_json("a", false, Some("/usr/bin/ls"), &ssd("b")),
-            role_json("b", false, Some("/usr/bin/cat"), &ssd("a")),
+            role_json("a", true, None, &parents(&["b"])),
+            role_json("b", false, Some("/usr/bin/ls"), &parents(&["c"])),
+            role_json("c", false, Some("/usr/bin/cat"), &parents(&["a", "b"])),
         ]);
-        for cmd in ["/usr/bin/ls", "/usr/bin/cat"] {
+        assert_eq!(choose(&roles, "/usr/bin/ls").unwrap().0, "b");
+        assert_eq!(choose(&roles, "/usr/bin/cat").unwrap().0, "c");
+    }
+
+    // an ancestor that the separation of duty excludes gives no task, and neither do the
+    // ancestors reached through it; the user holds every ancestor of the roles it holds
+    #[cfg(all(feature = "hierarchy", feature = "ssd"))]
+    #[test]
+    fn test_ssd_through_a_transitive_hierarchy() {
+        let none = serde_json::json!({});
+        let roles = serde_json::json!([
+            role_json(
+                "senior",
+                true,
+                None,
+                &serde_json::json!({"parents": ["middle"]})
+            ),
+            role_json(
+                "middle",
+                false,
+                Some("/usr/bin/cat"),
+                &serde_json::json!({"parents": ["junior"], "ssd": ["auditor"]})
+            ),
+            role_json("junior", false, Some("/usr/bin/ls"), &none),
+            role_json("auditor", true, Some("/usr/bin/id"), &none),
+        ]);
+        for cmd in ["/usr/bin/cat", "/usr/bin/ls", "/usr/bin/id"] {
             assert!(
                 matches!(choose(&roles, cmd), Err(SrError::PermissionDenied)),
                 "{cmd}"
             );
         }
+        // auditor names junior, which the user holds through senior and middle
+        let roles = serde_json::json!([
+            role_json(
+                "senior",
+                true,
+                None,
+                &serde_json::json!({"parents": ["middle"]})
+            ),
+            role_json(
+                "middle",
+                false,
+                Some("/usr/bin/cat"),
+                &serde_json::json!({"parents": ["junior"]})
+            ),
+            role_json("junior", false, Some("/usr/bin/ls"), &none),
+            role_json(
+                "auditor",
+                true,
+                Some("/usr/bin/id"),
+                &serde_json::json!({"ssd": ["junior"]})
+            ),
+        ]);
+        assert_eq!(choose(&roles, "/usr/bin/cat").unwrap().0, "middle");
+        for cmd in ["/usr/bin/ls", "/usr/bin/id"] {
+            assert!(
+                matches!(choose(&roles, cmd), Err(SrError::PermissionDenied)),
+                "{cmd}"
+            );
+        }
+    }
+
+    // a conflict holds both ways: the user who holds dev and auditor, dev naming auditor, can
+    // use neither, as the book says (decided by the maintainer on 2026-10-28)
+    #[cfg(feature = "ssd")]
+    #[test]
+    fn test_ssd_excludes_both_roles_of_a_conflict() {
+        let none = serde_json::json!({});
+        let roles = serde_json::json!([
+            role_json(
+                "dev",
+                true,
+                Some("/usr/bin/cat"),
+                &serde_json::json!({"ssd": ["auditor"]})
+            ),
+            role_json("auditor", true, Some("/usr/bin/ls"), &none),
+        ]);
+        for cmd in ["/usr/bin/cat", "/usr/bin/ls"] {
+            assert!(
+                matches!(choose(&roles, cmd), Err(SrError::PermissionDenied)),
+                "{cmd}"
+            );
+            assert!(
+                matches!(
+                    choose_role(&roles, cmd, "auditor"),
+                    Err(SrError::PermissionDenied)
+                ),
+                "{cmd}"
+            );
+        }
+    }
+
+    // a conflict is between the two roles that it names, not along a chain: a names b, b names
+    // c, and the user who holds a and c, not b, keeps a (decided by the maintainer on 2026-10-28)
+    #[cfg(feature = "ssd")]
+    #[test]
+    fn test_ssd_is_not_transitive() {
+        let none = serde_json::json!({});
+        let ssd = |other: &str| serde_json::json!({ "ssd": [other] });
+        let roles = serde_json::json!([
+            role_json("a", true, Some("/usr/bin/ls"), &ssd("b")),
+            role_json("b", false, None, &ssd("c")),
+            role_json("c", true, Some("/usr/bin/cat"), &none),
+        ]);
+        assert_eq!(choose(&roles, "/usr/bin/ls").unwrap().0, "a");
+        assert_eq!(choose(&roles, "/usr/bin/cat").unwrap().0, "c");
     }
 
     #[test]

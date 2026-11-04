@@ -1,7 +1,11 @@
+use std::fs::DirBuilder;
 use std::mem;
+use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+use std::path::Path;
 
 #[cfg(not(debug_assertions))]
 use konst::eq_str;
+use nix::sys::stat::Mode;
 use pest::{RuleType, error::LineColLocation};
 
 use rootasrole_core::util::escape_parser_string;
@@ -20,6 +24,36 @@ pub const RAR_CFG_DATA_PATH: &str = "target/rootasrole.json";
 pub const RAR_CFG_IMMUTABLE: bool = false;
 #[cfg(not(debug_assertions))]
 pub const RAR_CFG_IMMUTABLE: bool = eq_str(env!("RAR_CFG_IMMUTABLE"), "true");
+
+/// The directory of the temporary folders of chsr. In /run, which only root writes and which is
+/// emptied at boot: a name in /tmp, which every user writes, can be taken first. Landlock lets chsr
+/// remove the directories beneath it, and no other, so that its folder goes at the end.
+pub const CHSR_RUN_DIR: &str = "/run/chsr";
+
+/// Create `dir` with mode 0700 when it is missing, and refuse it when it is not a directory of the
+/// user that chsr runs as, that only this user opens: chsr makes its temporary folder there.
+pub fn secure_dir(dir: &Path) -> std::io::Result<()> {
+    match DirBuilder::new().mode(0o700).create(dir) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(e) => return Err(e),
+    }
+    let meta = std::fs::symlink_metadata(dir)?;
+    if meta.file_type().is_dir()
+        && meta.uid() == nix::unistd::geteuid().as_raw()
+        && !Mode::from_bits_truncate(meta.mode()).intersects(Mode::S_IRWXG | Mode::S_IRWXO)
+    {
+        Ok(())
+    } else {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!(
+                "{} must be a directory that only the user of chsr opens",
+                dir.display()
+            ),
+        ))
+    }
+}
 
 const fn start<R>(error: &pest::error::Error<R>) -> (usize, usize)
 where
@@ -95,6 +129,29 @@ mod tests {
     // Simple rule type for testing - pest provides a blanket implementation
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     enum TestRule {}
+
+    // the directory of the temporary folders is made with mode 0700, and refused when others may
+    // open it, or when it is a link or a file
+    #[test]
+    fn test_secure_dir() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let base = std::env::temp_dir().join(format!("rar_secure_dir_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir(&base).unwrap();
+        let dir = base.join("run");
+        assert!(secure_dir(&dir).is_ok());
+        assert_eq!(std::fs::metadata(&dir).unwrap().mode() & 0o777, 0o700);
+        assert!(secure_dir(&dir).is_ok());
+        let link = base.join("link");
+        symlink(&dir, &link).unwrap();
+        assert!(secure_dir(&link).is_err());
+        let file = base.join("file");
+        std::fs::write(&file, b"").unwrap();
+        assert!(secure_dir(&file).is_err());
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(secure_dir(&dir).is_err());
+        std::fs::remove_dir_all(&base).unwrap();
+    }
 
     #[test]
     fn test_underline_with_pos() {

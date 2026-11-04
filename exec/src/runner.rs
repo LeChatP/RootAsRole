@@ -1,4 +1,19 @@
+//! The process that runs the command, adapted from sudo-rs: [`ExecRunner`] is the `ParentClosure`
+//! of `src/exec/use_pty/parent.rs`, with the pty, and `run_no_pty` its `src/exec/no_pty.rs`.
+//!
+//! Where it differs from sudo-rs, and why:
+//! - a message to the monitor is sent at once, not queued until the backchannel can be written:
+//!   it is a few bytes, which the buffer of the socket takes.
+//! - on `SIGTTOU` or `SIGTTIN` of the command, dosr in the foreground resumes it in the foreground
+//!   whether the terminal was raw already or not: sudo-rs only does when it was not raw yet, and
+//!   otherwise suspends itself, so a command that asked for the terminal twice stopped.
+//! - the pty is given to the caller by default, see `crate::pty`.
+//! - an optional [`IoLogger`] logs the session.
+//! - without a pty, the signals are read in a plain loop with `try_wait`, not an event loop: it
+//!   waits in `poll` on the signal pipe, whose frames bring `SIGCHLD` too.
+
 use std::io;
+use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::{Command, Stdio};
 
@@ -13,7 +28,10 @@ use crate::orchestrator::{Orchestrator, PreExecContext};
 use super::event::{EventRegistry, PollEvent, Process, StopReason};
 use super::pipe::{IoLogger, Pipe, io_logger_sealed};
 use super::pty::{Pty, PtyLeader};
-use super::signal::{SignalStream, register_signal_handler, terminate_process};
+use super::signal::{
+    SignalStream, give_signals_to_the_command, ignored_by_the_caller, register_signal_handler,
+    signal_child, terminate_child, terminate_process,
+};
 use super::terminal::{ProcessId, TermSize, TerminalExt, UserTerm};
 
 pub struct SimpleFileLogger {
@@ -71,6 +89,7 @@ impl io_logger_sealed::Sealed for SimpleFileLogger {
     }
 }
 
+#[allow(clippy::struct_excessive_bools)]
 pub struct ExecRunner {
     pipe: Pipe<UserTerm, PtyLeader>,
     signal_stream: &'static SignalStream,
@@ -83,6 +102,9 @@ pub struct ExecRunner {
     foreground: bool,
     term_raw: bool,
     preserve_oflag: bool,
+    // dosr gives the keys of the user's terminal to the command, when it is in the foreground: the
+    // input of the command is the terminal, or the command asked for it (SIGTTIN, SIGTTOU)
+    relay_input: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -102,8 +124,32 @@ impl Process for ExecRunner {
         match event {
             RunnerEvent::PipeLeft(e) => {
                 trace!("runner: pipe left event {e:?}");
-                if let Err(err) = self.pipe.on_left_event(e, registry) {
-                    registry.set_break(err);
+                // As sudo-rs does: a terminal that is gone (hung up, revoked) is no longer
+                // polled, and the command goes on with the SIGHUP of the kernel, which it may
+                // ignore (nohup); breaking the loop here terminated it.
+                if self
+                    .pipe
+                    .left()
+                    .as_tty()
+                    .and_then(|tty| tty.tcgetsid())
+                    .is_err()
+                {
+                    warn!("runner: the terminal is gone, its events are ignored");
+                    self.pipe.ignore_events(registry);
+                } else if let Err(err) = self.pipe.on_left_event(e, registry) {
+                    if matches!(
+                        err.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
+                    ) {
+                        debug!("runner: terminal event {e:?}: {err}");
+                    } else if e == PollEvent::Readable {
+                        // a read that fails fails again at each poll that finds it readable
+                        warn!("runner: cannot read the terminal, its input is ignored: {err}");
+                        self.relay_input = false;
+                        self.pipe.disable_input(registry);
+                    } else {
+                        debug!("runner: terminal event {e:?}: {err}");
+                    }
                 }
             }
             RunnerEvent::PipeRight(e) => {
@@ -153,7 +199,9 @@ impl ExecRunner {
             }
             libc::SIGCONT => {
                 debug!("runner: SIGCONT -> resume terminal");
-                let _ = self.resume_terminal();
+                if let Err(e) = self.resume_terminal(registry) {
+                    warn!("runner: cannot set the terminal up again: {e}");
+                }
             }
             libc::SIGWINCH => {
                 // Propagate resize
@@ -256,22 +304,15 @@ impl ExecRunner {
 
         if matches!(signal, libc::SIGTTOU | libc::SIGTTIN) {
             // The command wants the terminal: when dosr is in the foreground, the command is
-            // resumed at once, whether the terminal was already raw or not (sudo-rs #1598).
-            if !self.foreground && self.check_foreground().is_err() {
+            // resumed at once, whether the terminal was already raw or not (see the doc of the module).
+            // Otherwise, once dosr is in the foreground again.
+            self.relay_input = true;
+            if let Err(e) = self.resume_terminal(registry) {
                 // the user's terminal was revoked
+                warn!("runner: cannot give the terminal to the command: {e}");
                 return None;
             }
             if self.foreground {
-                if !self.term_raw
-                    && self
-                        .pipe
-                        .left_mut()
-                        .set_raw_mode(true, self.preserve_oflag)
-                        .is_ok()
-                {
-                    self.term_raw = true;
-                }
-                self.pipe.enable_input(registry);
                 return Some(true);
             }
         }
@@ -292,11 +333,11 @@ impl ExecRunner {
                 .inspect_err(|e| warn!("runner: cannot set the default action of {signal}: {e}"))
                 .ok()
         };
-        let pgrp = self.parent_pgrp.inner();
-        // SAFETY: getpid, kill and killpg do not access memory
-        let suspended = unsafe {
-            (pgrp == libc::getpid() || libc::kill(pgrp, 0) == 0) && libc::killpg(pgrp, signal) == 0
-        };
+        // dosr is in the group, which therefore exists: a test of its leader (kill, as sudo-rs
+        // does) found no group in a pipeline whose first command had ended (true | dosr cmd), and
+        // terminated the command on ^Z
+        // SAFETY: killpg does not access memory
+        let suspended = unsafe { libc::killpg(self.parent_pgrp.inner(), signal) == 0 };
         drop(default_action);
 
         if !suspended {
@@ -305,29 +346,42 @@ impl ExecRunner {
             return None;
         }
         // dosr was continued
-        if self.command_pid <= 0 || self.resume_after_suspend().is_err() {
+        if self.command_pid <= 0 || self.resume_terminal(registry).is_err() {
             return None;
         }
         Some(self.term_raw)
     }
 
-    /// Set the terminals up again when dosr is continued after a suspension.
-    fn resume_after_suspend(&mut self) -> io::Result<()> {
+    /// Set the terminals up again when dosr is continued, after a suspension or on `SIGCONT`, or
+    /// when the command asks for the terminal. In the foreground, the settings of the user go to
+    /// the pty, and the terminal is raw and read when dosr relays the keys: raw without being
+    /// read, it would take no key, not even ^C. In the background, the terminal is the one of the
+    /// shell or of another job, whose settings are not those of the user for the command (bash
+    /// at its prompt has neither echo nor canonical mode, and bash 5.2 brings a running job to
+    /// the foreground with fg without SIGCONT); and a read of it fails with `EIO` (dosr ignores
+    /// `SIGTTIN`), again at each poll that finds it readable, so it is not read.
+    fn resume_terminal(&mut self, registry: &mut EventRegistry<Self>) -> io::Result<()> {
         self.check_foreground()?;
-        // the user may have changed the terminal settings while dosr was stopped
-        self.pipe.left().copy_to(self.pipe.right())?;
-        if self.foreground {
+        if !self.foreground {
+            self.term_raw = false;
+            self.pipe.disable_input(registry);
+            return Ok(());
+        }
+        // the user may have changed the settings while dosr was stopped; raw, they are those of
+        // dosr, not of the user
+        if !self.term_raw {
+            self.pipe.left().copy_to(self.pipe.right())?;
+        }
+        if self.relay_input {
             if self
                 .pipe
                 .left_mut()
-                .set_raw_mode(true, self.preserve_oflag)
+                .set_raw_mode(false, self.preserve_oflag)
                 .is_ok()
             {
                 self.term_raw = true;
             }
-        } else {
-            // in the background, dosr cannot use the terminal
-            self.term_raw = false;
+            self.pipe.enable_input(registry);
         }
         Ok(())
     }
@@ -339,31 +393,8 @@ impl ExecRunner {
         Ok(())
     }
 
-    fn resume_terminal(&mut self) -> io::Result<()> {
-        if self.term_raw && self.foreground {
-            debug!(
-                "runner: restoring raw mode (preserve_oflag={})",
-                self.preserve_oflag
-            );
-            self.pipe
-                .left_mut()
-                .set_raw_mode(true, self.preserve_oflag)?;
-        }
-        Ok(())
-    }
-
     fn is_self_terminating(&self, signaler_pid: libc::pid_t) -> bool {
-        if signaler_pid <= 0 || self.command_pid <= 0 {
-            return false;
-        }
-
-        if signaler_pid == self.command_pid {
-            return true;
-        }
-
-        // SAFETY: getpgid does not access memory
-        let signaler_pgrp = unsafe { libc::getpgid(signaler_pid) };
-        signaler_pgrp == self.command_pid
+        is_self_terminating(signaler_pid, self.command_pid)
     }
 
     fn check_monitor_exit(&mut self, registry: &mut EventRegistry<Self>) {
@@ -372,29 +403,7 @@ impl ExecRunner {
         let res = unsafe { libc::waitpid(self.monitor_pid, &raw mut status, libc::WNOHANG) };
         if res > 0 {
             debug!("runner: monitor exited with status {status}");
-
-            // Critical: Restore terminal settings and foreground pgrp to prevent freeze on next invocation
-            if self.term_raw {
-                if let Err(e) = self.pipe.left_mut().restore(false) {
-                    warn!("runner: failed to restore terminal settings: {e}");
-                } else {
-                    debug!("runner: terminal settings restored");
-                }
-            }
-
-            // Restore foreground process group to parent
-            if self.foreground {
-                if let Err(e) = self.pipe.left_mut().tcsetpgrp_nobg(self.parent_pgrp) {
-                    warn!("runner: failed to restore foreground pgrp: {e}");
-                } else {
-                    debug!(
-                        "runner: restored foreground pgrp to parent ({})",
-                        self.parent_pgrp.inner()
-                    );
-                }
-            }
-
-            let _ = self.pipe.flush_left();
+            // the output left and the terminal are done after the event loop
             registry.set_exit(std::process::ExitStatus::from_raw(status));
         }
     }
@@ -412,6 +421,8 @@ pub fn run_no_pty(
     mut command: Command,
     orchestrator: Orchestrator,
 ) -> io::Result<std::process::ExitStatus> {
+    // before the handlers of the runner
+    let ignored = ignored_by_the_caller();
     let original_set = block_all_signals();
 
     // initialize signals BEFORE spawning child to minimize race window
@@ -430,6 +441,7 @@ pub fn run_no_pty(
     unsafe {
         let ctx = PreExecContext::empty();
         command.pre_exec(move || {
+            give_signals_to_the_command(ignored);
             restore_signals(child_sigset);
             orchestrator.run(&ctx)
         });
@@ -456,25 +468,45 @@ pub fn run_no_pty(
                             return Ok(status);
                         }
                     }
-                    libc::SIGALRM => terminate_process(child_pid, false),
+                    // the command is not reaped: try_wait reaps it, and the loop then returns
+                    libc::SIGALRM => terminate_child(child_pid, false),
                     libc::SIGWINCH => {
-                        // SAFETY: kill does not access memory, it only sends a signal to the command
-                        unsafe { libc::kill(child_pid, libc::SIGWINCH) };
+                        let _ = signal_child(child_pid, libc::SIGWINCH, false);
                     }
                     _ => {
-                        if info.pid > 0 && info.pid == child_pid {
+                        if is_self_terminating(info.pid, child_pid) {
                             continue;
                         }
-                        // Forward signal
-                        if is_forward_signal_allowed(info.signal) {
-                            // SAFETY: kill does not access memory, it only sends a signal to the command
-                            unsafe { libc::kill(child_pid, info.signal) };
+                        if is_forward_signal_allowed(info.signal)
+                            && let Err(e) = signal_child(child_pid, info.signal, false)
+                        {
+                            warn!("runner(no_pty): cannot forward signal {}: {e}", info.signal);
                         }
                     }
                 }
             }
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {}
+            // the pipe is empty: wait for the next frame, SIGCHLD included, instead of spinning
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => wait_readable(signal_stream)?,
             Err(e) => return Err(e),
+        }
+    }
+}
+
+/// Blocks until `fd` can be read, or has hung up.
+fn wait_readable(fd: &impl AsFd) -> io::Result<()> {
+    let mut pollfd = libc::pollfd {
+        fd: fd.as_fd().as_raw_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    loop {
+        // SAFETY: one valid pollfd, which poll writes revents into
+        if unsafe { libc::poll(&raw mut pollfd, 1, -1) } >= 0 {
+            return Ok(());
+        }
+        let e = io::Error::last_os_error();
+        if e.kind() != io::ErrorKind::Interrupted {
+            return Err(e);
         }
     }
 }
@@ -551,6 +583,8 @@ fn run_in_pty(
     mut user_term: UserTerm,
     pty_setup: impl FnOnce(&Pty) -> io::Result<()>,
 ) -> io::Result<std::process::ExitStatus> {
+    // before the handlers of the runner and of the monitor
+    let ignored = ignored_by_the_caller();
     let original_set = block_all_signals();
 
     // SAFETY: getpgrp does not access memory
@@ -626,16 +660,22 @@ fn run_in_pty(
         command.stderr(Stdio::from(pty.follower.try_clone()?));
     }
 
-    if foreground {
-        // Preserve oflag for interactive terminals (keeps ONLCR for proper CR/LF mapping)
-        let preserve = !exec_bg || preserve_oflag;
-        debug!("runner(pty): enabling raw mode preserve_oflag={preserve}");
-        user_term.set_raw_mode(true, preserve)?;
-        term_raw = true;
-    }
-
-    // Copy terminal settings from user terminal to PTY follower to ensure interactive I/O works
+    // The settings of the user's terminal, before it is raw: the command reads and echoes its
+    // input, and writes its lines, like on the user's terminal (sudo-rs exec/use_pty/parent.rs)
     user_term.copy_to(&pty.follower)?;
+
+    // Raw like sudo-rs makes it (exec/use_pty/parent.rs): without ISIG, ^C, ^Z and ^\ reach the
+    // pty, whose settings make them signals for the command, unless it reads them as keys (C-c in
+    // emacs); and without output processing, done by the pty too (once: with OPOST and ONLCR here,
+    // a newline came as CR CR LF, and as CR LF from a command that writes LF to move down). Not
+    // with the input of the command from a pipe, whose keys dosr does not read.
+    if foreground && !exec_bg {
+        debug!("runner(pty): enabling raw mode preserve_oflag={preserve_oflag}");
+        match user_term.set_raw_mode(false, preserve_oflag) {
+            Ok(()) => term_raw = true,
+            Err(e) => warn!("runner(pty): cannot make the terminal raw: {e}"),
+        }
+    }
 
     // Create backchannel
     let (mut parent_channel, monitor_channel) = Backchannel::pair()?;
@@ -663,6 +703,7 @@ fn run_in_pty(
             orchestrator,
             monitor_channel,
             original_set.as_ref(),
+            ignored,
             foreground && !exec_bg,
         );
 
@@ -729,6 +770,7 @@ fn run_in_pty(
         foreground,
         term_raw,
         preserve_oflag,
+        relay_input: foreground && !exec_bg,
     };
 
     // HANDSHAKE 1: Send "Start" (Edge) to monitor to let it spawn the command
@@ -757,7 +799,10 @@ fn run_in_pty(
         .send_monitor_message(&MonitorMessage::Edge);
     debug!("runner(pty): sent stop edge to monitor");
 
-    // restore
+    // As sudo-rs does: the output left first, while the terminal is still raw (once restored,
+    // the newlines that the pty made CR LF came as CR CR LF), then the settings of the user,
+    // without discarding what the user typed ahead (TCSADRAIN), and only in the foreground.
+    let _ = runner.pipe.flush_left();
     if runner.term_raw
         && runner
             .pipe
@@ -765,17 +810,32 @@ fn run_in_pty(
             .as_tty()
             .and_then(|tty| tty.tcgetpgrp())
             .is_ok_and(|pgrp| pgrp == runner.parent_pgrp)
+        && let Err(e) = runner.pipe.left_mut().restore(false)
     {
-        runner.pipe.left_mut().restore(true)?;
+        warn!("runner(pty): cannot restore the terminal settings: {e}");
     }
 
     match res {
-        StopReason::Exit(status) => {
-            let _ = runner.pipe.flush_left();
-            Ok(status)
-        }
+        StopReason::Exit(status) => Ok(status),
         StopReason::Break(e) => Err(e),
     }
+}
+
+/// Whether a signal sent by `signaler_pid` is one that the command sent itself, which the
+/// runner does not give it again, as sudo-rs decides it (`is_self_terminating` of
+/// `exec/use_pty/parent.rs` and `exec/no_pty.rs`): sent by the command, by a process of its group,
+/// or by a process of the group that dosr leads (without a pty, the command is in it, and a
+/// signal to the group reached it already).
+fn is_self_terminating(signaler_pid: libc::pid_t, command_pid: libc::pid_t) -> bool {
+    if signaler_pid <= 0 || command_pid <= 0 {
+        return false;
+    }
+    if signaler_pid == command_pid {
+        return true;
+    }
+    // SAFETY: getpgid and getpid do not access memory
+    let (signaler_pgrp, dosr_pid) = unsafe { (libc::getpgid(signaler_pid), libc::getpid()) };
+    signaler_pgrp == command_pid || signaler_pgrp == dosr_pid
 }
 
 /// Changes the action of a signal until it is dropped, then puts the previous action back.
@@ -1015,6 +1075,108 @@ mod tests {
         (1..libc::SIGRTMIN())
             .map(|signal| unsafe { libc::sigismember(&raw const set, signal) } == 1)
             .collect()
+    }
+
+    /// The masks `SigBlk` and `SigIgn` of `/proc/<pid>/status` (`self` or a process id).
+    fn signal_masks(status: &str) -> (u64, u64) {
+        let mask = |name: &str| {
+            status
+                .lines()
+                .find_map(|line| line.strip_prefix(name))
+                .map(|hex| u64::from_str_radix(hex.trim(), 16).expect("a hexadecimal mask"))
+                .expect("the mask is in the status")
+        };
+        (mask("SigBlk:"), mask("SigIgn:"))
+    }
+
+    // sudo-rs ddc4030e: the command starts with the signal mask of the caller, and ignores no other
+    // signal than the caller, although the runner blocks every signal while it waits for it
+    #[test]
+    fn run_no_pty_starts_the_command_with_the_signals_of_the_caller() {
+        let _guard = MUTEX.lock().unwrap();
+        let out = std::env::temp_dir().join(format!("rar-exec-signals-{}", std::process::id()));
+        // no shell between: a shell changes its own mask
+        let mut command = Command::new("/usr/bin/cat");
+        command
+            .arg("/proc/self/status")
+            .stdout(fs::File::create(&out).expect("the output of the command"));
+        let caller = signal_masks(
+            &fs::read_to_string("/proc/thread-self/status").expect("the status of this thread"),
+        );
+        let status = run_no_pty(command, Orchestrator::new(NOOP_STEPS)).expect("run command");
+        let command = signal_masks(&fs::read_to_string(&out).expect("the status of the command"));
+        let _ = fs::remove_file(&out);
+        assert!(status.success());
+        assert_eq!(
+            command.0, caller.0,
+            "blocked: {:x} instead of {:x}",
+            command.0, caller.0
+        );
+        assert_eq!(
+            command.1 & !caller.1,
+            0,
+            "ignored: {:x}, the caller {:x}",
+            command.1,
+            caller.1
+        );
+    }
+
+    // a signal that the caller ignores stays ignored by the command (nohup, the background jobs
+    // of a script), also one that the runner handles (SIGTERM), as under sudo
+    #[test]
+    fn run_no_pty_keeps_the_signals_that_the_caller_ignores() {
+        let _guard = MUTEX.lock().unwrap();
+        let ignore = |signal| {
+            // SAFETY: SIG_IGN installs no handler code
+            unsafe { libc::signal(signal, libc::SIG_IGN) }
+        };
+        let previous = [ignore(libc::SIGHUP), ignore(libc::SIGTERM)];
+        let out = std::env::temp_dir().join(format!("rar-exec-ignored-{}", std::process::id()));
+        let mut command = Command::new("/usr/bin/cat");
+        command
+            .arg("/proc/self/status")
+            .stdout(fs::File::create(&out).expect("the output of the command"));
+        let status = run_no_pty(command, Orchestrator::new(NOOP_STEPS)).expect("run command");
+        for (signal, action) in [libc::SIGHUP, libc::SIGTERM].into_iter().zip(previous) {
+            // SAFETY: the disposition that the test process had
+            unsafe { libc::signal(signal, action) };
+        }
+        let (_, ignored) =
+            signal_masks(&fs::read_to_string(&out).expect("the status of the command"));
+        let _ = fs::remove_file(&out);
+        assert!(status.success());
+        for signal in [libc::SIGHUP, libc::SIGTERM] {
+            assert_ne!(ignored & 1 << (signal - 1), 0, "{signal} in {ignored:x}");
+        }
+    }
+
+    // without a pty, the runner waits for the signals of the command, SIGCHLD included: it read
+    // its empty pipe again at once, and used a whole CPU while the command ran
+    #[test]
+    fn run_no_pty_waits_without_using_the_cpu() {
+        let _guard = MUTEX.lock().unwrap();
+        let cpu_of_this_thread = || {
+            let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
+            // SAFETY: getrusage writes a whole rusage, which is only read when it succeeded
+            let usage = unsafe {
+                assert_eq!(libc::getrusage(libc::RUSAGE_THREAD, usage.as_mut_ptr()), 0);
+                usage.assume_init()
+            };
+            let micros = |t: libc::timeval| {
+                u64::try_from(t.tv_sec).unwrap() * 1_000_000 + u64::try_from(t.tv_usec).unwrap()
+            };
+            micros(usage.ru_utime) + micros(usage.ru_stime)
+        };
+        let mut command = Command::new("/usr/bin/sleep");
+        command.arg("1");
+        let before = cpu_of_this_thread();
+        let status = run_no_pty(command, Orchestrator::new(NOOP_STEPS)).expect("run command");
+        let used = cpu_of_this_thread() - before;
+        assert!(status.success());
+        assert!(
+            used < 200_000,
+            "{used} µs of CPU while the command slept 1 s"
+        );
     }
 
     // with a terminal, a failed setup of the pty stops before the command starts; without one,

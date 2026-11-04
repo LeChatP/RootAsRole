@@ -1,3 +1,10 @@
+//! The pty of the command, adapted from sudo-rs (`src/system/term/mod.rs`).
+//!
+//! Where it differs from sudo-rs, and why: the owner of the pty is changed through its descriptor
+//! ([`PtyFollower::set_owner`]), not by its path, and only when the policy gives the terminal to
+//! the target user (`RAR_TTY_OWNER`): by default it stays with the caller, where sudo-rs gives it
+//! to the target user, with the group `tty`.
+
 use std::{
     ffi::{CString, c_uchar},
     fs::File,

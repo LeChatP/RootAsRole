@@ -60,6 +60,34 @@ impl std::error::Error for SrError {}
 /// Result type for sr operations
 pub type SrResult<T> = Result<T, SrError>;
 
+/// An error of dosr, and whether the log says why dosr refused the policy, or a file of it: dosr
+/// shows nothing of the policy to the user who runs it, only where to read why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Failure {
+    pub error: SrError,
+    pub reason_logged: bool,
+}
+
+impl Failure {
+    /// `error`, whose reason is in the log.
+    pub const fn logged(error: SrError) -> Self {
+        Self {
+            error,
+            reason_logged: true,
+        }
+    }
+}
+
+/// Any error of dosr, without a reason in the log.
+impl<E: Into<SrError>> From<E> for Failure {
+    fn from(error: E) -> Self {
+        Self {
+            error: error.into(),
+            reason_logged: false,
+        }
+    }
+}
+
 /// Auto-conversions for common error types
 impl From<std::io::Error> for SrError {
     fn from(err: std::io::Error) -> Self {
@@ -119,6 +147,16 @@ mod tests {
         assert_eq!(SrError::ExecutionFailed.to_string(), "Execution failed");
         assert_eq!(SrError::SystemError.to_string(), "System error");
         assert_eq!(SrError::InvalidAgruments.to_string(), "Invalid arguments");
+    }
+
+    #[test]
+    fn test_failure() {
+        let failure: Failure = SrError::PermissionDenied.into();
+        assert!(!failure.reason_logged);
+        let failure: Failure = std::io::Error::from(std::io::ErrorKind::NotFound).into();
+        assert_eq!(failure.error, SrError::ExecutionFailed);
+        assert!(!failure.reason_logged);
+        assert!(Failure::logged(SrError::PermissionDenied).reason_logged);
     }
 
     #[test]

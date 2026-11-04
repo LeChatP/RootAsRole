@@ -16,6 +16,7 @@ use json::{
 use log::debug;
 
 use rootasrole_core::{
+    PACKAGE_VERSION,
     database::{
         options::{Level, Opt, OptType},
         structs::{IdTask, RoleGetter, SPolicy},
@@ -46,7 +47,7 @@ pub fn process_input(storage: &mut FileSettings, inputs: Inputs) -> Result<bool,
     }
     if inputs.action == InputAction::Upgrade {
         debug!("chsr upgrade");
-        return upgrade::upgrade(storage, inputs.upgrade_check);
+        return upgrade::upgrade(storage, inputs.upgrade_check, inputs.upgrade_to.as_deref());
     }
     if inputs.action == InputAction::List && inputs.policy && inputs.policy_path.is_none() {
         // chsr file list: the files of the policy, the root file last
@@ -613,9 +614,29 @@ pub fn process_input(storage: &mut FileSettings, inputs: Inputs) -> Result<bool,
         _ => Err("Unknown Input".into()),
     }
 }
+/// Why no policy can be edited when the root file names `path`, where chsr loaded no policy file:
+/// dosr reads the policy there, so the policy of the root file is not the one that it reads (an
+/// edit of it was saved, and changed nothing for dosr).
+pub fn no_policy_at(storage: &FileSettings, path: &Path) -> String {
+    let example = format!("{{\"version\": \"{PACKAGE_VERSION}\"}}");
+    if path.is_dir() {
+        format!(
+            "the root file names {}, where chsr loads no policy file (see chsr upgrade --check), and dosr reads none: add one, like {} with {example}",
+            path.display(),
+            path.join(DEFAULT_POLICY_FILE).display()
+        )
+    } else {
+        format!(
+            "the root file names {}, which is not a policy file, and dosr reads none: create it with {example}, or name another policy with chsr editor {}",
+            path.display(),
+            storage.root_path().display()
+        )
+    }
+}
+
 /// The policy that a command edits: the file named with `chsr file <path>` (its path, or its
 /// name in the policy directory), else `default.json` of the policy directory, the only policy
-/// file, or the policy of the root file when there is no other file.
+/// file, or the policy of the root file when the root file holds the policy.
 fn target_policy(
     storage: &FileSettings,
     policy_path: Option<&str>,
@@ -647,7 +668,10 @@ fn target_policy(
         return Err(format!("{name} is not a file of the policy: {}", names()).into());
     }
     match files.as_slice() {
-        [] => Ok(storage.get_root().config.clone()),
+        [] => storage.policy_path().map_or_else(
+            || Ok(storage.get_root().config.clone()),
+            |path| Err(no_policy_at(storage, path).into()),
+        ),
         [(_, policy)] => Ok(Rc::clone(policy)),
         _ => files
             .iter()

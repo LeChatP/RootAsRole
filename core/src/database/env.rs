@@ -203,6 +203,33 @@ impl<'a> ResolvedEnv<'a> {
     }
 }
 
+/// The longest command line in `RAR_COMMAND` and `SUDO_COMMAND`, as in sudo-rs.
+///
+/// The kernel refuses an execve whose environment holds a string longer than 32 pages
+/// (`MAX_ARG_STRLEN`): the whole command line of a command with long arguments kept it from
+/// starting.
+pub const COMMAND_VAR_MAX: usize = 4096;
+
+/// The command line given in `RAR_COMMAND` and `SUDO_COMMAND`.
+///
+/// The command, then its arguments as long as they fit whole in [`COMMAND_VAR_MAX`] bytes.
+/// sudo-rs leaves out an argument that does not fit and goes on with the next ones; here the
+/// first one that does not fit ends it, so that the value is always the start of the command
+/// line.
+#[must_use]
+pub fn command_var(command: &str, args: &[impl AsRef<str>]) -> String {
+    let mut line = command.to_string();
+    for arg in args {
+        let arg = arg.as_ref();
+        if line.len() + 1 + arg.len() > COMMAND_VAR_MAX {
+            break;
+        }
+        line.push(' ');
+        line.push_str(arg);
+    }
+    line
+}
+
 /// The filter of the policy on the variables passed to the command, once the policy is gone.
 ///
 /// dosr decides the environment of the command before the PAM session is open; the variables
@@ -632,6 +659,35 @@ mod tests {
     }
 
     #[test]
+    fn test_command_var_is_the_start_of_the_command_line() {
+        assert_eq!(
+            command_var("/usr/bin/true", &[] as &[&str]),
+            "/usr/bin/true"
+        );
+        assert_eq!(
+            command_var("/usr/bin/ls", &["-l", "/tmp"]),
+            "/usr/bin/ls -l /tmp"
+        );
+        let fits = "a".repeat(COMMAND_VAR_MAX - "/usr/bin/echo ".len());
+        assert_eq!(
+            command_var("/usr/bin/echo", &[fits.as_str()]).len(),
+            COMMAND_VAR_MAX
+        );
+        assert_eq!(
+            command_var("/usr/bin/echo", &[fits.as_str(), "b"]),
+            format!("/usr/bin/echo {fits}")
+        );
+        // an argument that does not fit ends the value, even when a later one would fit
+        let long = "a".repeat(100_000);
+        assert_eq!(
+            command_var("/usr/bin/rm", &["-rf", long.as_str(), "/"]),
+            "/usr/bin/rm -rf"
+        );
+        let args = vec!["a".repeat(100_000); 10];
+        assert!(command_var("/usr/bin/sh", &args).len() <= COMMAND_VAR_MAX);
+    }
+
+    #[test]
     fn test_env_filter_is_the_policy_filter() {
         let vars = [
             ("LC_ALL", "C"),
@@ -698,6 +754,26 @@ mod tests {
         assert!(!final_env.contains_key("CHECKED"));
         assert!(!final_env.contains_key("LD_PRELOAD"));
         assert!(!final_env.contains_key("PAM_FUNC"));
+    }
+
+    #[test]
+    fn test_final_env_with_two_paths_of_the_user() {
+        // sudo CVE-2010-1646: a second PATH in the environment of the user bypassed secure_path;
+        // the path options give the only PATH, whatever the user has, even kept by name
+        let target = cred();
+        for behavior in [EnvBehavior::Delete, EnvBehavior::Keep] {
+            let env = resolved(behavior, &["PATH"], &[], &[]);
+            let final_env = env
+                .final_env(
+                    [("PATH", "/tmp/a"), ("PATH", "/tmp/b")],
+                    ["/usr/bin"],
+                    &target,
+                    None,
+                    String::new(),
+                )
+                .unwrap();
+            assert_eq!(final_env.get("PATH").unwrap(), "/usr/bin", "{behavior:?}");
+        }
     }
 
     #[test]

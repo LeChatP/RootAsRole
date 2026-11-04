@@ -6,7 +6,7 @@ use log::debug;
 use nix::unistd::{Group, User};
 use rootasrole_core::{
     database::{
-        actor::{DGroupType, DGroups, DUserType},
+        actor::{DGroupType, DGroups, DUserType, numeric_id},
         score::{CapsMin, SetgidMin, SetuidMin, TaskScore},
         structs::{GroupsFrom, SCapabilities, SetBehavior},
     },
@@ -202,7 +202,8 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
         #[serde(field_identifier, rename_all = "lowercase")]
         #[repr(u8)]
         enum Field {
-            #[serde(alias = "d")]
+            // "default_behavior" as core reads it: a set that chsr saved was a policy refused
+            #[serde(alias = "d", alias = "default_behavior")]
             Default,
             #[serde(alias = "f")]
             Fallback,
@@ -227,9 +228,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                 E: serde::de::Error,
             {
                 debug!("SGroupsChooserVisitor: visit_borrowed_str");
-                let group: DGroupType<'_> = v
-                    .parse::<u32>()
-                    .map_or_else(|_| v.into(), std::convert::Into::into);
+                let group: DGroupType<'_> = v.into();
                 fixed_groups(self.cli, DGroups::Single(group))
             }
             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
@@ -244,9 +243,8 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetGroupsDeserializerReturn<'a> {
                 E: serde::de::Error,
             {
                 debug!("SGroupsChooserVisitor: visit_string");
-                let group: DGroupType<'_> = v
-                    .parse::<u32>()
-                    .map_or_else(|_| Cow::<str>::from(v).into(), std::convert::Into::into);
+                let group: DGroupType<'_> = numeric_id(&v)
+                    .map_or_else(|| Cow::<str>::from(v).into(), std::convert::Into::into);
                 fixed_groups(self.cli, DGroups::Single(group))
             }
 
@@ -433,9 +431,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetUserDeserializerReturn<'a> {
                 E: serde::de::Error,
             {
                 debug!("SetUserVisitor: visit_borrowed_str");
-                let user = v
-                    .parse::<u32>()
-                    .map_or_else(|_| DUserType::from(v), DUserType::from);
+                let user = DUserType::from(v);
                 let score = Some(SetuidMin::from(&user));
                 let ok = true;
                 if let Some(y) = &self.cli.opt_filter.as_ref().and_then(|x| x.user)
@@ -460,9 +456,7 @@ impl<'de: 'a, 'a> DeserializeSeed<'de> for SetUserDeserializerReturn<'a> {
                 E: serde::de::Error,
             {
                 debug!("SetUserVisitor: visit_string");
-                let user = v
-                    .parse::<u32>()
-                    .map_or_else(|_| DUserType::from(v), DUserType::from);
+                let user = DUserType::from(v);
                 let score = Some(SetuidMin::from(&user));
                 let ok = true;
                 if let Some(y) = &self.cli.opt_filter.as_ref().and_then(|x| x.user)

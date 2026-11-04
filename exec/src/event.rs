@@ -1,3 +1,13 @@
+//! The event loop of the runner and the monitor, adapted from sudo-rs (`src/exec/event.rs`).
+//!
+//! Where it differs from sudo-rs, and why:
+//! - `poll` gives `POLLERR`, `POLLHUP` and `POLLNVAL` to the handler of the descriptor, which then
+//!   reads the end or the error: sudo-rs drops them, and a descriptor that only hangs up makes
+//!   `poll` return at once, again and again.
+//! - an error of `poll` other than `EINTR` panics, where sudo-rs polls again at once, forever: with
+//!   the descriptors that dosr keeps open, `EINVAL` (more of them than `RLIMIT_NOFILE`) cannot
+//!   happen, and `ENOMEM` leaves nothing better to do.
+
 use std::{
     ffi::c_short,
     fmt::Debug,
@@ -161,8 +171,11 @@ impl<T: Process> EventRegistry<T> {
             return Ok(ids);
         }
 
+        // nfds_t is 32 bits on i386; more descriptors than that is the EINVAL of poll
+        let nfds = libc::nfds_t::try_from(fds.len())
+            .map_err(|_| io::Error::from_raw_os_error(libc::EINVAL))?;
         // SAFETY: C compatible layout
-        let ret = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as _, -1) };
+        let ret = unsafe { libc::poll(fds.as_mut_ptr(), nfds, -1) };
         if ret < 0 {
             return Err(io::Error::last_os_error());
         }

@@ -1,18 +1,31 @@
 use std::{
     error::Error,
     fmt::Debug,
-    io::{BufRead, Seek, Write},
+    io::{BufRead, Read, Write},
     os::unix::process::CommandExt,
     path::Path,
 };
 
 use log::{debug, warn};
-use rootasrole_core::database::warn::Warn;
+use rootasrole_core::{
+    PACKAGE_VERSION,
+    database::{
+        migrations::{DocumentMigration, UnreadableVersion, migrate_document, read_as_is},
+        structs::SPolicy,
+        warn::Warn,
+    },
+    file::RootSettings,
+};
 use serde::{Serialize, de::DeserializeOwned};
-use std::os::unix::fs::PermissionsExt;
-use std::{fs::File, io::stdin, process::Command};
+use serde_json::Value;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::{
+    fs::{File, OpenOptions},
+    io::stdin,
+    process::Command,
+};
 
-use crate::security::seccomp_lock;
+use crate::security::{editor_lock, seccomp_lock};
 
 pub struct Defer<F: FnOnce()>(Option<F>);
 
@@ -34,10 +47,83 @@ pub const fn defer<F: FnOnce()>(f: F) -> Defer<F> {
     Defer::new(f)
 }
 
+/// A configuration edited without its version, which chsr writes when it saves the file.
+pub trait WithoutVersion {
+    /// Forget a version typed in the configuration, kept with the unknown fields.
+    fn forget_version(&mut self);
+}
+
+impl WithoutVersion for SPolicy {
+    fn forget_version(&mut self) {
+        self.extra_fields.remove("version");
+        self.extra_fields.remove("v");
+    }
+}
+
+impl WithoutVersion for RootSettings {
+    fn forget_version(&mut self) {
+        self.config.borrow_mut().forget_version();
+    }
+}
+
+/// The configuration typed in the editor, and its migration. chsr writes the version when it
+/// saves the file: a version typed in the editor was saved next to it, and dosr refuses a policy
+/// with two. A typed version is read like the version of a file: the content of an older one is
+/// migrated from it, an unknown one is refused, and it is not kept.
+fn edited<T: DeserializeOwned + WithoutVersion>(
+    text: &str,
+) -> Result<(T, Option<DocumentMigration>), String> {
+    let mut document: Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+    match document.get("version").or_else(|| document.get("v")) {
+        Some(Value::String(version)) if *version != PACKAGE_VERSION.to_string() => {
+            if let Err(UnreadableVersion::Invalid(version)) = read_as_is(Some(version)) {
+                return Err(format!("the version \"{version}\" is not valid"));
+            }
+            let migration = migrate_document(&mut document).map_err(|e| e.to_string())?;
+            if let Value::Object(map) = &mut document {
+                map.remove("version");
+                map.remove("v");
+            }
+            let config = serde_json::from_value(document).map_err(|e| e.to_string())?;
+            Ok((config, migration))
+        }
+        // read from the text, whose errors tell the line and the column
+        Some(Value::String(_)) | None => {
+            let mut config: T = serde_json::from_str(text).map_err(|e| e.to_string())?;
+            config.forget_version();
+            Ok((config, None))
+        }
+        Some(version) => Err(format!("the version {version} is not valid")),
+    }
+}
+
 pub const SYSTEM_EDITOR_LIST: &[&str] = &konst::iter::collect_const!(&str =>
     konst::string::split(env!("RAR_CHSR_EDITOR_PATH"), ","),
         map(str::trim_ascii),
 );
+
+/// The link to the editor of the system, which root chooses (update-alternatives on Debian).
+const SYSTEM_EDITOR: &str = "/usr/bin/editor";
+
+/// The editor of `list` that `link` points to. The link only chooses among the editors of the
+/// list, each tested under the sandbox; one outside it (ed, vim.tiny...) is ignored, with a
+/// warning in the log. chsr runs it by its path in the list, whose name tells its options:
+/// `/usr/bin/vim` where the link resolves to `vim.basic`, joe for jpico, which is a link to joe.
+fn system_editor<'a>(link: &str, list: &[&'a str]) -> Option<&'a str> {
+    let target = std::fs::canonicalize(link).ok()?;
+    let editor = list.iter().copied().find(|&editor| {
+        editor != link
+            && is_executable_file(editor)
+            && std::fs::canonicalize(editor).is_ok_and(|path| path == target)
+    });
+    if editor.is_none() {
+        warn!(
+            "Ignoring {link}: {} is not an editor of the list of chsr",
+            target.display()
+        );
+    }
+    editor
+}
 
 fn is_vim(editor: &str) -> bool {
     editor.ends_with("vim") || editor.ends_with("nvim")
@@ -56,10 +142,12 @@ fn is_executable_file(path: &str) -> bool {
     meta.permissions().mode() & 0o111 != 0
 }
 
+/// Edit `config` in an editor, until `check` accepts it or the user aborts.
 #[cfg_attr(tarpaulin, ignore)]
-pub fn start_editing<P, T: Serialize + DeserializeOwned + Warn + Debug>(
+pub fn start_editing<P, T: Serialize + DeserializeOwned + Warn + Debug + WithoutVersion>(
     folder: &P,
     config: &mut T,
+    check: impl Fn(&T) -> Result<(), String>,
 ) -> Result<bool, Box<dyn Error>>
 where
     P: AsRef<Path>,
@@ -82,13 +170,13 @@ where
     });
 
     let editor = if editor.is_empty() {
-        let mut found_editor = None;
-        for &editor in SYSTEM_EDITOR_LIST {
-            if is_executable_file(editor) {
-                found_editor = Some(editor);
-                break;
-            }
-        }
+        // the editor of the system when it is one of the list, else the first one installed
+        let found_editor = system_editor(SYSTEM_EDITOR, SYSTEM_EDITOR_LIST).or_else(|| {
+            SYSTEM_EDITOR_LIST
+                .iter()
+                .copied()
+                .find(|&editor| is_executable_file(editor))
+        });
         if let Some(editor) = found_editor {
             debug!("Using editor from SYSTEM_EDITOR_LIST: {editor}");
             editor.to_string()
@@ -101,18 +189,78 @@ where
         editor
     };
 
-    edit_internal(folder, config, &editor, &mut input, &mut stdout, |msg| {
-        warn!("{msg}");
-    })
+    edit_internal(
+        folder,
+        config,
+        &editor,
+        &mut input,
+        &mut stdout,
+        |msg| {
+            warn!("{msg}");
+        },
+        check,
+    )
 }
 
-fn edit_internal<P, R, W, F, T: Serialize + DeserializeOwned + Warn + Debug>(
+/// The answer of the user, in lowercase, or `None` at the end of the input: nobody answers, which
+/// is no yes (an empty line is the default answer).
+fn answer<R: BufRead>(input: &mut R) -> std::io::Result<Option<String>> {
+    let mut line = String::new();
+    if input.read_line(&mut line)? == 0 {
+        return Ok(None);
+    }
+    Ok(Some(line.trim().to_lowercase()))
+}
+
+/// The command that opens `path` in `editor`, without the configuration of vim.
+fn editor_command(editor: &str, path: &Path) -> Command {
+    let mut cmd = Command::new(editor);
+    if is_vim(editor) {
+        cmd.arg("-u")
+            .arg("NONE")
+            .arg("-U")
+            .arg("NONE")
+            .arg("-N")
+            .arg("-i")
+            .arg("NONE")
+            .arg("--noplugin")
+            .arg("-c")
+            .arg("syntax on")
+            .arg("-c")
+            .arg("set ft=json")
+            .arg("--");
+    } else if editor_name(editor).starts_with("emacs") {
+        // in the terminal, without the init files of the user or of the site, like vim above
+        cmd.arg("-nw").arg("-Q");
+    } else if editor_name(editor) == "micro" {
+        // an empty configuration, in the temporary folder: micro loads none of the user, and
+        // writes its backups in the only place where the sandbox lets it write; micro creates
+        // this directory, where it ignores -config-dir for one that does not exist yet
+        if let Some(folder) = path.parent() {
+            cmd.env("MICRO_CONFIG_HOME", folder.join("micro"));
+        }
+    }
+    cmd.arg(path);
+    cmd
+}
+
+/// The file name of the editor, which tells the options it gets.
+fn editor_name(editor: &str) -> &str {
+    Path::new(editor)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(editor)
+}
+
+#[allow(clippy::too_many_lines)]
+fn edit_internal<P, R, W, F, T: Serialize + DeserializeOwned + Warn + Debug + WithoutVersion>(
     folder: &P,
     config: &mut T,
     editor: &str,
     input: &mut R,
     output: &mut W,
     mut warn_handler: F,
+    check: impl Fn(&T) -> Result<(), String>,
 ) -> Result<bool, Box<dyn Error>>
 where
     R: BufRead,
@@ -133,31 +281,33 @@ where
     debug!("Wrote current config to temporary file");
     file.flush()?;
     debug!("Flushed temporary file");
-    file.rewind()?;
-    debug!("Rewound temporary file");
+    // the editor saves the copy by its path, where chsr reads it again (read_copy)
+    drop(file);
+
+    // owned, so the pre_exec closure of the child can hold them (the editor sandbox below)
+    let lock_folder = folder.as_ref().to_path_buf();
+    let lock_editor = editor.to_string();
 
     loop {
-        let mut cmd = Command::new(editor);
-        if is_vim(editor) {
-            cmd.arg("-u")
-                .arg("NONE")
-                .arg("-U")
-                .arg("NONE")
-                .arg("-N")
-                .arg("-i")
-                .arg("NONE")
-                .arg("--noplugin")
-                .arg("-c")
-                .arg("syntax on")
-                .arg("-c")
-                .arg("set ft=json")
-                .arg("--");
-        }
-        cmd.arg(&path);
+        let mut cmd = editor_command(editor, &path);
         debug!("Launching editor: {cmd:?}");
-        // SAFETY: chsr is single-threaded when it launches the editor, so the forked child cannot inherit
-        // a lock held by another thread. `seccomp_lock` only installs a filter on the child.
-        unsafe { cmd.pre_exec(seccomp_lock) };
+        // The editor child is confined: a nested Landlock domain (write only the temporary folder,
+        // run only the editor and its interpreter) then the seccomp filter. Skipped under tests,
+        // whose editor is a shell-script mock that the sandbox would stop; the sandbox is covered
+        // by the security module's own tests and the VM end-to-end checks.
+        if !cfg!(test) {
+            let child_folder = lock_folder.clone();
+            let child_editor = lock_editor.clone();
+            // SAFETY: chsr is single-threaded when it launches the editor, so the forked child
+            // cannot inherit a lock held by another thread. editor_lock and seccomp_lock only
+            // restrict the child.
+            unsafe {
+                cmd.pre_exec(move || {
+                    editor_lock(&child_folder, &child_editor)?;
+                    seccomp_lock()
+                });
+            }
+        }
         let status = cmd
             .spawn()
             .map_err(|e| format!("Failed to launch editor: {e}"))?
@@ -167,12 +317,23 @@ where
             writeln!(output, "Editor exited with an error.")?;
             return Ok(false);
         }
-        let seek_pos = file.stream_position()?;
-        debug!("Current file position: {seek_pos}");
-        file.rewind()?;
-        debug!("Rewound temporary file for reading");
-        match serde_json::from_reader::<_, T>(&mut file) {
-            Ok(new_config) => {
+        let text = read_copy(&path)?;
+        // a configuration that does not pass the check is invalid like one that does not parse
+        match edited::<T>(&text).and_then(|(new_config, migration)| {
+            check(&new_config).map(|()| (new_config, migration))
+        }) {
+            Ok((new_config, migration)) => {
+                if let Some(migration) = migration {
+                    writeln!(
+                        output,
+                        "Written for RootAsRole {}, migrated to {PACKAGE_VERSION}:",
+                        migration.from
+                    )?;
+                    // the values are JSON, and the keys escaped
+                    for change in &migration.changes {
+                        writeln!(output, "  {change}")?;
+                    }
+                }
                 new_config.warn_anomalies(&mut warn_handler);
                 debug!("config: {new_config:#?}");
                 let after = serde_json::to_string_pretty(&new_config)?;
@@ -190,12 +351,12 @@ where
                 write!(output, "Your choice [Y/n/a]: ")?;
                 output.flush()?;
 
-                let mut line = String::new();
-                input.read_line(&mut line)?;
-                let choice = line.trim().to_lowercase();
+                // the end of the input saved the configuration, without a yes
+                let Some(choice) = answer(input)? else {
+                    writeln!(output, "\nNo answer: nothing is saved.")?;
+                    return Ok(false);
+                };
                 if choice == "n" || choice == "no" {
-                    // Replace the cursor position to the last position before reading
-                    file.seek(std::io::SeekFrom::Start(seek_pos))?;
                     continue;
                 } else if choice == "a" || choice == "abort" {
                     return Ok(false);
@@ -212,17 +373,47 @@ where
                 write!(output, "Your choice [Y/a]: ")?;
                 output.flush()?;
 
-                let mut line = String::new();
-                input.read_line(&mut line)?;
-                let choice = line.trim().to_lowercase();
+                // the end of the input started the editor again, forever
+                let Some(choice) = answer(input)? else {
+                    writeln!(output, "\nNo answer: nothing is saved.")?;
+                    return Ok(false);
+                };
                 if choice == "a" || choice == "abort" {
                     return Ok(false);
                 }
-                // else Replace the cursor position to the last position before reading
-                file.seek(std::io::SeekFrom::Start(seek_pos))?;
             }
         }
     }
+}
+
+/// The copy that the editor saved, read again by its path: an editor that writes a new file and
+/// renames it over the copy (vim and emacs when they keep a backup, which they do outside /tmp)
+/// left the descriptor of chsr on the former content, and the edit was lost. Only a regular file:
+/// not a link, a FIFO or a device that the editor could have put there.
+fn read_copy(path: &Path) -> std::io::Result<String> {
+    let not_a_file = || {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("{} is no longer a regular file", path.display()),
+        )
+    };
+    let before = std::fs::symlink_metadata(path)?;
+    if !before.file_type().is_file() {
+        return Err(not_a_file());
+    }
+    // O_NONBLOCK: a FIFO put there between the two would block the open
+    let mut file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)?;
+    let opened = file.metadata()?;
+    if !opened.file_type().is_file() || (opened.dev(), opened.ino()) != (before.dev(), before.ino())
+    {
+        return Err(not_a_file());
+    }
+    let mut text = String::new();
+    file.read_to_string(&mut text)?;
+    Ok(text)
 }
 
 #[cfg(test)]
@@ -261,6 +452,127 @@ mod tests {
         ));
         fs::create_dir(&path).unwrap();
         path
+    }
+
+    // emacs stays in the terminal without init files, micro gets an empty configuration in the
+    // temporary folder, the only place where the sandbox lets it write; the others get the file
+    #[test]
+    fn test_editor_command_options() {
+        let path = Path::new("/tmp/chsr_x/config_y");
+        let args = |editor| {
+            editor_command(editor, path)
+                .get_args()
+                .map(|arg| arg.to_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            args("/usr/bin/emacs"),
+            ["-nw", "-Q", "/tmp/chsr_x/config_y"]
+        );
+        assert_eq!(args("/usr/bin/micro"), ["/tmp/chsr_x/config_y"]);
+        let micro = editor_command("/usr/bin/micro", path);
+        let config = micro
+            .get_envs()
+            .find(|(key, _)| *key == "MICRO_CONFIG_HOME")
+            .and_then(|(_, value)| value);
+        assert_eq!(config, Some(std::ffi::OsStr::new("/tmp/chsr_x/micro")));
+        assert_eq!(args("/usr/bin/nano"), ["/tmp/chsr_x/config_y"]);
+        assert_eq!(args("/usr/bin/joe"), ["/tmp/chsr_x/config_y"]);
+        assert_eq!(args("/usr/bin/vim").last().unwrap(), "/tmp/chsr_x/config_y");
+    }
+
+    // /usr/bin/editor chooses among the editors of the list, by the file it resolves to, and the
+    // editor is run by its path in the list; an editor outside the list, or no link, chooses none
+    #[test]
+    fn test_system_editor_chooses_among_the_list() {
+        use std::os::unix::fs::symlink;
+        let dir = test_temp_dir("rar_test_system_editor");
+        let path = |name: &str| dir.join(name).to_str().unwrap().to_string();
+        for name in ["vim.basic", "nano", "ed"] {
+            fs::write(dir.join(name), "").unwrap();
+            fs::set_permissions(dir.join(name), fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        // the list names vim by a link, as Debian does through /etc/alternatives/vim
+        symlink(dir.join("vim.basic"), dir.join("vim")).unwrap();
+        let (vim, nano) = (path("vim"), path("nano"));
+        let list = [vim.as_str(), nano.as_str()];
+        let link = path("editor");
+        assert_eq!(system_editor(&link, &list), None);
+        symlink(dir.join("nano"), &link).unwrap();
+        assert_eq!(system_editor(&link, &list), Some(nano.as_str()));
+        fs::remove_file(&link).unwrap();
+        symlink(dir.join("vim.basic"), &link).unwrap();
+        assert_eq!(system_editor(&link, &list), Some(vim.as_str()));
+        fs::remove_file(&link).unwrap();
+        symlink(dir.join("ed"), &link).unwrap();
+        assert_eq!(system_editor(&link, &list), None);
+        // the link itself in the list does not stand for an editor
+        assert_eq!(system_editor(&link, &[link.as_str()]), None);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // an editor that saves to a new file and renames it over the copy, like vim and emacs when
+    // they keep a backup: chsr read the former content through its descriptor and lost the edit
+    #[test]
+    fn test_edit_saved_by_rename_reaches_chsr() {
+        let _lock = LOCK.lock().unwrap();
+        let temp_dir_path = test_temp_dir("rar_test_rename");
+        let mock_editor_path = temp_dir_path.join("mock_editor.sh");
+        let script = r#"#!/bin/sh
+for last; do true; done
+printf '%s' '{"roles": 1}' > "$last.new" && mv "$last.new" "$last"
+"#;
+        fs::write(&mock_editor_path, script).unwrap();
+        fs::set_permissions(&mock_editor_path, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut config = RootSettings::default();
+        let mut input = Cursor::new(b"a\n");
+        let mut output = Vec::new();
+        let result = edit_internal(
+            &temp_dir_path,
+            &mut config,
+            mock_editor_path.to_str().unwrap(),
+            &mut input,
+            &mut output,
+            |_| {},
+            |_| Ok(()),
+        );
+        let _ = fs::remove_dir_all(&temp_dir_path);
+        assert!(!result.unwrap());
+        let output = String::from_utf8(output).unwrap();
+        assert!(
+            output.contains("Your modifications are invalid"),
+            "{output}"
+        );
+    }
+
+    // the copy replaced by a link: chsr does not follow it, it reads nothing through it
+    #[test]
+    fn test_copy_replaced_by_a_link_is_refused() {
+        let _lock = LOCK.lock().unwrap();
+        let temp_dir_path = test_temp_dir("rar_test_link");
+        let target = temp_dir_path.join("elsewhere.json");
+        fs::write(&target, r#"{"roles": []}"#).unwrap();
+        let mock_editor_path = temp_dir_path.join("mock_editor.sh");
+        let script = format!(
+            "#!/bin/sh\nfor last; do true; done\nrm \"$last\" && ln -s '{}' \"$last\"\n",
+            target.display()
+        );
+        fs::write(&mock_editor_path, script).unwrap();
+        fs::set_permissions(&mock_editor_path, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut config = RootSettings::default();
+        let mut input = Cursor::new(b"Y\n");
+        let mut output = Vec::new();
+        let result = edit_internal(
+            &temp_dir_path,
+            &mut config,
+            mock_editor_path.to_str().unwrap(),
+            &mut input,
+            &mut output,
+            |_| {},
+            |_| Ok(()),
+        );
+        let _ = fs::remove_dir_all(&temp_dir_path);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -341,6 +653,7 @@ echo '{}' > "$file"
             &mut input,
             &mut output,
             |msg| warnings.push(msg),
+            |_| Ok(()),
         );
 
         if let Err(e) = &result {
@@ -377,7 +690,7 @@ echo '{}' > "$file"
         let script = r#"#!/bin/sh
 for last; do true; done
 file="$last"
-echo '{ "version": "1.0.0", "storage": { "method": "json" }, "unknown_config_field": "foo" }' > "$file"
+echo '{ "storage": { "method": "json" }, "unknown_config_field": "foo" }' > "$file"
 "#;
         fs::write(&mock_editor_path, script).unwrap();
         fs::set_permissions(&mock_editor_path, fs::Permissions::from_mode(0o755)).unwrap();
@@ -393,10 +706,222 @@ echo '{ "version": "1.0.0", "storage": { "method": "json" }, "unknown_config_fie
             &mut input,
             &mut output,
             |_| {},
+            |_| Ok(()),
         );
 
         assert!(result.is_ok());
         assert!(!result.unwrap());
+    }
+
+    // nobody answers, like `chsr editor < /dev/null`: a valid edit was saved without a yes, and an
+    // invalid one started the editor again forever
+    #[test]
+    fn test_edit_config_end_of_input_saves_nothing() {
+        let _lock = LOCK.lock().unwrap();
+        for content in [r#"{"roles": [{"name": "r"}]}"#, r#"{"roles": 1}"#] {
+            let temp_dir_path = test_temp_dir("rar_test_eof");
+            let temp_dir_path_clone = temp_dir_path.clone();
+            let _defer = defer(move || {
+                let _ = fs::remove_dir_all(&temp_dir_path_clone);
+            });
+            let mock_editor_path = temp_dir_path.join("mock_editor.sh");
+            let runs = temp_dir_path.join("runs");
+            let script = format!(
+                "#!/bin/sh\nfor last; do true; done\necho '{content}' > \"$last\"\necho run >> '{}'\n",
+                runs.display()
+            );
+            fs::write(&mock_editor_path, script).unwrap();
+            fs::set_permissions(&mock_editor_path, fs::Permissions::from_mode(0o755)).unwrap();
+
+            let (done, finished) = std::sync::mpsc::channel();
+            let folder = temp_dir_path.clone();
+            std::thread::spawn(move || {
+                let mut config = SPolicy::default();
+                let mut output = Vec::new();
+                let result = edit_internal(
+                    &folder,
+                    &mut config,
+                    mock_editor_path.to_str().unwrap(),
+                    &mut Cursor::new(b""),
+                    &mut output,
+                    |_| {},
+                    |_| Ok(()),
+                )
+                .map_err(|e| e.to_string());
+                let unchanged = config == SPolicy::default();
+                done.send((result, unchanged, String::from_utf8(output).unwrap()))
+                    .unwrap();
+            });
+            let (result, unchanged, output) = finished
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .expect("the editor is not started again without an answer");
+            assert_eq!(result, Ok(false), "{content}");
+            assert!(unchanged, "{content}");
+            assert!(
+                output.ends_with("No answer: nothing is saved.\n"),
+                "{output}"
+            );
+            assert_eq!(fs::read_to_string(&runs).unwrap().lines().count(), 1);
+        }
+    }
+
+    // the root file edited to name its JSON policy file in CBOR: saved, neither chsr nor dosr
+    // read the policy anymore; the check of the storage settings asks to edit again
+    #[test]
+    fn test_edit_root_storage_is_checked() {
+        let _lock = LOCK.lock().unwrap();
+        let temp_dir_path = test_temp_dir("rar_test_storage");
+        let temp_dir_path_clone = temp_dir_path.clone();
+        let _defer = defer(move || {
+            let _ = fs::remove_dir_all(&temp_dir_path_clone);
+        });
+        let version = rootasrole_core::PACKAGE_VERSION.to_string();
+        let root = temp_dir_path.join("rootasrole.json");
+        let policy = temp_dir_path.join("policy.json");
+        fs::write(
+            &policy,
+            serde_json::json!({"version": version, "roles": []}).to_string(),
+        )
+        .unwrap();
+        let storage = |method: &str| serde_json::json!({"method": method, "settings": {"path": policy, "immutable": false}});
+        fs::write(
+            &root,
+            serde_json::json!({"version": version, "storage": storage("json")}).to_string(),
+        )
+        .unwrap();
+        let mut settings =
+            rootasrole_core::file::FileSettings::write_all(&root, &root, StorageMethod::JSON)
+                .unwrap();
+        let check = settings.storage_check();
+
+        let mock_editor_path = temp_dir_path.join("mock_editor.sh");
+        let script = format!(
+            "#!/bin/sh\nfor last; do true; done\necho '{}' > \"$last\"\n",
+            serde_json::json!({"storage": storage("cbor")})
+        );
+        fs::write(&mock_editor_path, script).unwrap();
+        fs::set_permissions(&mock_editor_path, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut output = Vec::new();
+        let result = edit_internal(
+            &temp_dir_path,
+            settings.get_root_mut(),
+            mock_editor_path.to_str().unwrap(),
+            &mut Cursor::new(b"a\n"),
+            &mut output,
+            |_| {},
+            |root: &RootSettings| check.check(&root.storage),
+        );
+        let output = String::from_utf8(output).unwrap();
+        assert!(!result.unwrap(), "{output}");
+        assert!(output.contains("is not a policy in cbor"), "{output}");
+        assert!(!output.contains("Resulting configuration"), "{output}");
+        assert_eq!(settings.get_root().storage.method, StorageMethod::JSON);
+    }
+
+    // chsr writes the version when it saves the file: a version typed in the editor (the policy
+    // of the book has one) was saved next to it, which dosr refuses, and on the next load chsr
+    // took the typed one; it is now read like the version of a file
+    #[test]
+    fn test_edit_typed_version() {
+        let _lock = LOCK.lock().unwrap();
+        let temp_dir_path = test_temp_dir("rar_test_version");
+        let temp_dir_path_clone = temp_dir_path.clone();
+        let _defer = defer(move || {
+            let _ = fs::remove_dir_all(&temp_dir_path_clone);
+        });
+        let version = rootasrole_core::PACKAGE_VERSION.to_string();
+        let root = temp_dir_path.join("rootasrole.json");
+        let policy = temp_dir_path.join("policy.json");
+        fs::write(
+            &root,
+            serde_json::json!({"version": version, "storage": {"method": "json", "settings": {"path": policy, "immutable": false}}}).to_string(),
+        )
+        .unwrap();
+        let mock_editor_path = temp_dir_path.join("mock_editor.sh");
+        let edit = |typed: &serde_json::Value, answers: &'static [u8]| {
+            let before = serde_json::json!({"version": version, "roles": []}).to_string();
+            fs::write(&policy, &before).unwrap();
+            let script =
+                format!("#!/bin/sh\nfor last; do true; done\necho '{typed}' > \"$last\"\n");
+            fs::write(&mock_editor_path, script).unwrap();
+            fs::set_permissions(&mock_editor_path, fs::Permissions::from_mode(0o755)).unwrap();
+            let mut settings =
+                rootasrole_core::file::FileSettings::write_all(&root, &root, StorageMethod::JSON)
+                    .unwrap();
+            let target = settings.get_policies()[0].clone();
+            let mut output = Vec::new();
+            let saved = edit_internal(
+                &temp_dir_path,
+                &mut *target.borrow_mut(),
+                mock_editor_path.to_str().unwrap(),
+                &mut Cursor::new(answers),
+                &mut output,
+                |_| {},
+                |_| Ok(()),
+            )
+            .unwrap();
+            if saved {
+                settings.save_all().unwrap();
+            }
+            (
+                String::from_utf8(output).unwrap(),
+                fs::read_to_string(&policy).unwrap(),
+            )
+        };
+        let roles = serde_json::json!([{"name": "r"}]);
+        for typed in [
+            serde_json::json!({"roles": roles}),
+            serde_json::json!({"version": version, "roles": roles}),
+            serde_json::json!({"v": version, "roles": roles}),
+        ] {
+            let (output, saved) = edit(&typed, b"y\n");
+            assert_eq!(saved.matches("\"version\"").count(), 1, "{typed}: {saved}");
+            assert!(!saved.contains("\"v\""), "{typed}: {saved}");
+            assert_eq!(
+                serde_json::from_str::<Value>(&saved).unwrap()["roles"],
+                roles
+            );
+            assert!(!output.contains("migrated"), "{output}");
+        }
+        // an older version: the content is migrated from it, and the migration shown
+        let (output, saved) = edit(
+            &serde_json::json!({"version": "4.0.3", "options": {"env": {"check": ["LC_.*"]}}}),
+            b"y\n",
+        );
+        assert!(
+            output.contains(&format!(
+                "Written for RootAsRole 4.0.3, migrated to {version}:"
+            )),
+            "{output}"
+        );
+        assert!(
+            output.contains(r#"/options/env/check/0: "LC_.*" -> "LC_*""#),
+            "{output}"
+        );
+        let saved: Value = serde_json::from_str(&saved).unwrap();
+        assert_eq!(saved["version"], version.as_str());
+        assert_eq!(
+            saved["options"]["env"]["check"],
+            serde_json::json!(["LC_*"])
+        );
+        // unknown or invalid: edited again, here aborted
+        let newer = format!("{}.0.0", rootasrole_core::PACKAGE_VERSION.major + 1);
+        for (typed, reason) in [
+            ("3.0.0".into(), "No migration path"),
+            (serde_json::json!(newer), "No migration path"),
+            ("x".into(), "is not valid"),
+            (serde_json::json!(4.2), "is not valid"),
+        ] {
+            let (output, saved) = edit(
+                &serde_json::json!({"version": typed, "roles": roles}),
+                b"a\n",
+            );
+            assert!(output.contains(reason), "{typed}: {output}");
+            assert_eq!(
+                saved,
+                serde_json::json!({"version": version, "roles": []}).to_string()
+            );
+        }
     }
 
     #[test]
@@ -431,6 +956,7 @@ echo '{ "version": "1.0.0", "storage": { "method": "json" }, mistake  }' > "$fil
             &mut input,
             &mut output,
             |_| {},
+            |_| Ok(()),
         );
 
         assert!(result.is_ok());
@@ -470,6 +996,7 @@ echo '{ "storage": { "method": "json" } }' > "$file"
             &mut input,
             &mut output,
             |msg| warnings.push(msg),
+            |_| Ok(()),
         );
 
         assert!(result.unwrap());
@@ -496,7 +1023,6 @@ echo '{ "storage": { "method": "json" } }' > "$file"
         let mock_editor_path = temp_dir_path.join("mock_editor.sh");
         // We construct a JSON with many unknown fields to trigger warnings
         let json_content = r#"{
-    "version": "1.0.0",
     "storage": { "method": "json" },
     "unknown_config_field": "foo",
     "options": {
@@ -601,6 +1127,7 @@ EOF
             &mut input,
             &mut output,
             |msg| warnings.push(msg),
+            |_| Ok(()),
         );
 
         if let Err(e) = &result {
@@ -620,7 +1147,21 @@ EOF
         assert!(w("Unknown user field"));
         assert!(w("Unknown group in role"));
         assert!(w("Unknown group field"));
-        assert!(w("Unknown task field"));
+        // the fields of the task, once, not those of its role for each task
+        assert!(w(
+            "Unknown task field in role 'role1' task 'Name(\"task1\")' : 'unknown_task_field'"
+        ));
+        assert!(w(
+            "in role 'role1' task 'Name(\"task1\")' : 'unknown_task_opt'"
+        ));
+        assert!(!w("task field in role 'role1' task 'Name(\"task2\")'"));
+        assert_eq!(
+            warnings
+                .iter()
+                .filter(|msg| msg.contains("'unknown_role_field'"))
+                .count(),
+            1
+        );
         assert!(w("Unknown cred field"));
         assert!(w("Unknown commands field"));
         assert!(w("Empty command in role"));

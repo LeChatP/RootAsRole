@@ -163,6 +163,8 @@ pub struct Inputs {
     pub convertion: Option<Convertion>,
     pub convert_reconfigure: bool,
     pub upgrade_check: bool,
+    /// `chsr upgrade --to`: the older version to write the policy for.
+    pub upgrade_to: Option<String>,
 }
 
 #[derive(Builder, Debug, Default)]

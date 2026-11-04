@@ -8,7 +8,7 @@ use rootasrole_core::{
     SettingsContent,
     database::versionning::Versioning,
     file::LockedSettingsFile,
-    util::{StorageMethod, check_others_permissions},
+    util::{StorageMethod, cbor_at_end, check_others_permissions},
 };
 use serde::{
     Deserialize, Deserializer,
@@ -31,21 +31,22 @@ where
         check_others_permissions(path.as_ref(), file)?;
 
         let buf = BufReader::new(file);
+        // what follows the root settings in the file makes it invalid, as for chsr
         let settings: Versioning<SettingsContent> = match rar_cfg_type {
-            StorageMethod::JSON => RootNoConfigDeserializer
-                .deserialize(&mut serde_json::Deserializer::from_reader(buf))
-                .map_err(|e| {
-                    debug!("Failed to deserialize root settings: {e}");
-                    io::Error::new(io::ErrorKind::InvalidData, e)
-                })?,
+            StorageMethod::JSON => {
+                let mut deserializer = serde_json::Deserializer::from_reader(buf);
+                RootNoConfigDeserializer
+                    .deserialize(&mut deserializer)
+                    .and_then(|settings| deserializer.end().map(|()| settings))
+                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
+            }
             StorageMethod::CBOR => {
                 let mut io_reader = cbor4ii::core::utils::IoReader::new(buf);
-                RootNoConfigDeserializer
+                let settings = RootNoConfigDeserializer
                     .deserialize(&mut cbor4ii::serde::Deserializer::new(&mut io_reader))
-                    .map_err(|e| {
-                        debug!("Failed to deserialize root settings: {e}");
-                        io::Error::new(io::ErrorKind::InvalidData, e)
-                    })?
+                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+                cbor_at_end(&mut io_reader)?;
+                settings
             }
         };
         debug!("Loaded root settings from {}", path.as_ref().display());

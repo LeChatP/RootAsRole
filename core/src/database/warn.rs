@@ -83,33 +83,22 @@ impl Warn for SRole {
             }
         }
         for task in &self.tasks {
-            for key in self.extra_fields.keys() {
+            let task = task.as_ref().borrow();
+            for key in task.extra_fields.keys() {
                 warn(format!(
                     "Warning: Unknown task field in role '{}' task '{:?}' : '{}'",
-                    task.as_ref().borrow().name,
-                    self.name,
-                    key
+                    self.name, task.name, key
                 ));
             }
-            warn_cred(
-                self,
-                &task.as_ref().borrow(),
-                &task.as_ref().borrow().cred,
-                &mut warn,
-            );
-            warn_cmds(
-                self,
-                &task.as_ref().borrow(),
-                &task.as_ref().borrow().commands,
-                &mut warn,
-            );
-            if let Some(opt) = &self.options {
+            warn_cred(self, &task, &task.cred, &mut warn);
+            warn_cmds(self, &task, &task.commands, &mut warn);
+            if let Some(opt) = &task.options {
                 for key in opt.as_ref().borrow().extra_fields.keys() {
                     warn(format!(
                         "Warning: Unknown options field at {:?} level in role '{}' task '{:?}' : '{}'",
                         opt.as_ref().borrow().level,
                         self.name,
-                        self.name,
+                        task.name,
                         key
                     ));
                 }

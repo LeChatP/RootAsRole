@@ -12,6 +12,8 @@
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
+use rootasrole_core::{database::versionning::Versioning, file::RootSettings, util::write_config};
+
 use super::*;
 use test_log::test;
 
@@ -48,11 +50,20 @@ fn policy_of(nb_tasks: usize, command: impl Fn(usize) -> String, by_id: bool) ->
     }])
 }
 
+/// How the policy file is written.
+#[derive(Clone, Copy, Debug)]
+enum Written {
+    /// As the generator writes it, with the long keys.
+    AsIs,
+    /// Read and written by rootasrole-core like chsr: CBOR has the short keys.
+    ByChsr,
+}
+
 /// The mean time of a decision for `cmd` with a policy of `nb_tasks` tasks, over `iterations`
 /// decisions.
 fn decision_time(
     name: &str,
-    method: StorageMethod,
+    (method, written): (StorageMethod, Written),
     nb_tasks: usize,
     policy: &impl Fn(usize) -> Value,
     cmd: &str,
@@ -61,7 +72,20 @@ fn decision_time(
     let roles = policy(nb_tasks);
     let dir = PolicyDir::new(&format!("perf-{}-{method}", name.replace(' ', "-")));
     let root = dir.0.join("rootasrole");
-    write_file(&root, &root_settings(method, &root, roles), method, 0o600);
+    let settings = root_settings(method, &root, roles);
+    match written {
+        Written::AsIs => write_file(&root, &settings, method, 0o600),
+        Written::ByChsr => {
+            let settings: Versioning<RootSettings> = serde_json::from_value(settings).unwrap();
+            write_config(
+                &settings,
+                &mut std::fs::File::create(&root).unwrap(),
+                method,
+            )
+            .unwrap();
+            set_mode(&root, 0o600);
+        }
+    }
     let cli = Cli::builder().cmd_path(cmd).build();
     let cred = dummy_cred();
     let decide = || {
@@ -89,12 +113,22 @@ fn decision_time(
 /// Prints the time of a decision for 1 and `MANY` tasks with the policy written by `policy`, and
 /// the cost of one task.
 fn indicator(name: &str, method: StorageMethod, cmd: &str, policy: impl Fn(usize) -> Value) {
+    indicator_of(name, (method, Written::AsIs), cmd, policy);
+}
+
+fn indicator_of(
+    name: &str,
+    file: (StorageMethod, Written),
+    cmd: &str,
+    policy: impl Fn(usize) -> Value,
+) {
     let _alone = ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner);
-    let one = decision_time(name, method, 1, &policy, cmd, 200);
-    let many = decision_time(name, method, MANY, &policy, cmd, 10);
+    let one = decision_time(name, file, 1, &policy, cmd, 200);
+    let many = decision_time(name, file, MANY, &policy, cmd, 10);
     let per_task = many.saturating_sub(one) / u32::try_from(MANY - 1).unwrap();
+    let (method, written) = file;
     println!(
-        "perf {name} ({method}, dosr {cmd}): 1 task {one:?}, {MANY} tasks {many:?}, one task {per_task:?}"
+        "perf {name} ({method} {written:?}, dosr {cmd}): 1 task {one:?}, {MANY} tasks {many:?}, one task {per_task:?}"
     );
 }
 
@@ -134,4 +168,30 @@ fn perf_glob_commands() {
     indicator("glob commands", StorageMethod::CBOR, "/usr/bin/true", |n| {
         policy_of(n, |i| format!("/usr/bin/true{i}*"), false)
     });
+}
+
+// the policy that chsr writes, read by core and written again, against the same policy written
+// with the long keys: in CBOR, chsr writes one character for each key; each task has options
+#[test]
+#[ignore = "performance indicator, run in release"]
+fn perf_written_by_chsr() {
+    let policy = |n| {
+        let mut roles = policy_of(n, |i| format!("/usr/bin/true{i}"), false);
+        for task in roles[0]["tasks"].as_array_mut().unwrap() {
+            task["options"] = serde_json::json!({
+                "authentication": "skip",
+                "env": {"default": "delete", "keep": ["HOME", "USER"], "check": ["TZ"]},
+                "timeout": {"type": "tty", "duration": "00:05:00", "max_usage": 3}
+            });
+        }
+        roles
+    };
+    for written in [Written::AsIs, Written::ByChsr] {
+        indicator_of(
+            "written by chsr",
+            (StorageMethod::CBOR, written),
+            "/usr/bin/true",
+            policy,
+        );
+    }
 }
