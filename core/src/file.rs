@@ -28,8 +28,7 @@ use crate::{
     },
     util::{
         RAR_CFG_IMMUTABLE, RAR_CFG_PATH, RAR_CFG_TYPE, StorageMethod, cbor_at_end, has_privileges,
-        is_immutable, open_lock_with_privileges, read_with_privileges, with_mutable_config,
-        write_config,
+        is_immutable, with_mutable_config, write_config,
     },
 };
 
@@ -117,7 +116,11 @@ impl<T: Serialize + DeserializeOwned + Debug + Default> LockedSettingsFile<T> {
         S: AsRef<Path>,
     {
         let load_data = || -> io::Result<Self> {
-            let file = open_lock_with_privileges(
+            #[expect(
+                deprecated,
+                reason = "the root file and the policy files, at paths that the build or the administrator chose"
+            )]
+            let file = crate::util::open_lock_with_privileges(
                 path.as_ref(),
                 options,
                 nix::fcntl::FlockArg::LockExclusive,
@@ -134,7 +137,8 @@ impl<T: Serialize + DeserializeOwned + Debug + Default> LockedSettingsFile<T> {
         };
 
         if write && path.as_ref().exists() {
-            let mut file = read_with_privileges(&path)?;
+            #[expect(deprecated, reason = "the same file as load_data")]
+            let mut file = crate::util::read_with_privileges(&path)?;
             if is_immutable(&file)? {
                 return with_mutable_config(&mut file, |_| load_data());
             }
@@ -299,7 +303,11 @@ fn check_policy_at(path: &Path, method: StorageMethod) -> Result<(), String> {
     };
     for file in files {
         let read = || -> Result<(), Box<dyn Error>> {
-            let mut document = read_document(method, &read_with_privileges(&file)?)?;
+            #[expect(
+                deprecated,
+                reason = "the policy that the administrator names in the root file, with chsr"
+            )]
+            let mut document = read_document(method, &crate::util::read_with_privileges(&file)?)?;
             migrate_document(&mut document)?;
             serde_json::from_value::<Versioning<Rc<RefCell<SPolicy>>>>(document)?;
             Ok(())
@@ -1284,13 +1292,13 @@ mod tests {
         config.save(StorageMethod::JSON, false).unwrap();
         drop(config); // yes, it is ugly.
         // assert that external_file contains /usr/bin/true
-        let mut file = read_with_privileges(external_file).unwrap();
+        let mut file = File::open(external_file).unwrap();
         let mut content = String::new();
         file.read_to_string(&mut content).unwrap();
         assert!(content.contains("/usr/bin/true"));
 
         // assert that test_file does NOT contain /usr/bin/true (only storage settings)
-        let mut file = read_with_privileges(test_file).unwrap();
+        let mut file = File::open(test_file).unwrap();
         let mut content = String::new();
         file.read_to_string(&mut content).unwrap();
         assert!(!content.contains("/usr/bin/true"));
@@ -1438,7 +1446,7 @@ mod tests {
         config.save(StorageMethod::CBOR, false).unwrap();
         drop(config); // yes, it is ugly.
         // Assert that external_file is a binary file with CBOR format
-        let mut file = read_with_privileges(external_file).unwrap();
+        let mut file = File::open(external_file).unwrap();
         let mut content = Vec::new();
         file.read_to_end(&mut content).unwrap();
         let deserialized: Versioning<Rc<RefCell<SPolicy>>> =

@@ -30,9 +30,7 @@ use rootasrole_core::{
         structs::GroupsFrom,
         workdir::ResolvedWorkdir,
     },
-    util::{
-        StorageMethod, cbor_at_end, check_immutable, check_others_permissions, read_with_privileges,
-    },
+    util::{StorageMethod, cbor_at_end, check_immutable, check_others_permissions},
 };
 use serde::de::DeserializeSeed;
 
@@ -157,7 +155,11 @@ where
         .unwrap_or_else(|| rar_cfg_data_path.as_ref().to_path_buf());
     let parse_file = |file_path: &Path| -> Result<BestExecSettings, FileError> {
         let config_finder_deserializer = ConfigFinderDeserializer { cli, cred };
-        let file = read_with_privileges(file_path).map_err(|e| {
+        #[expect(
+            deprecated,
+            reason = "the policy file that the root file names, at a path of the administrator; the descriptor is checked next"
+        )]
+        let file = rootasrole_core::util::read_with_privileges(file_path).map_err(|e| {
             error!("{}: {e}", file_path.display());
             FileError::Refused(e.into())
         })?;

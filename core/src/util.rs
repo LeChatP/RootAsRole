@@ -942,6 +942,10 @@ pub fn create_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<File> {
 /// # Errors
 /// Returns an error if the file cannot be opened with the required privileges,
 /// or if locking the file fails
+#[deprecated(
+    since = "4.3.0",
+    note = "follows symbolic links with CAP_DAC_READ_SEARCH, then CAP_DAC_OVERRIDE: open the file relative to a checked directory with O_NOFOLLOW instead"
+)]
 pub fn open_lock_with_privileges<P: AsRef<Path>>(
     p: P,
     options: &OpenOptions,
@@ -988,6 +992,10 @@ pub fn cbor_at_end<'de, R: cbor4ii::core::dec::Read<'de>>(reader: &mut R) -> io:
 
 /// # Errors
 /// Returns an error if the file cannot be opened with the required privileges
+#[deprecated(
+    since = "4.3.0",
+    note = "follows symbolic links with CAP_DAC_READ_SEARCH, then CAP_DAC_OVERRIDE: open the file relative to a checked directory with O_NOFOLLOW instead"
+)]
 pub fn read_with_privileges<P: AsRef<Path>>(p: P) -> std::io::Result<File> {
     debug!("Opening file {}", p.as_ref().display());
     std::fs::File::open(&p).or_else(|e| {

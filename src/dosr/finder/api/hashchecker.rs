@@ -12,7 +12,7 @@ use log::{debug, warn};
 use nix::unistd::{AccessFlags, access};
 use rootasrole_core::{
     database::score::{CmdMin, CmdOrder},
-    util::{all_paths_from_env, match_single_path, read_with_privileges},
+    util::{all_paths_from_env, match_single_path},
 };
 use serde_json::to_value;
 use sha2::Digest;
@@ -169,7 +169,11 @@ fn verify_executable_conditions(
                 "Executor has write access to the executable, this could lead to a race condition vulnerability"
             );
         }
-        let open = read_with_privileges(cmd_path);
+        #[expect(
+            deprecated,
+            reason = "the hashchecker plugin is deprecated, removed in 5.0; it reads a command that the policy allows"
+        )]
+        let open = rootasrole_core::util::read_with_privileges(cmd_path);
         if open.is_err() {
             return None;
         }
