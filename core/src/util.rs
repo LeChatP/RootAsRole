@@ -200,10 +200,23 @@ pub const AUTHENTICATION: SAuthentication =
 
 pub const PRIVILEGED: SPrivileged = SPrivileged::const_parse(env!("RAR_USER_CONSIDERED"));
 
-pub const UMASK: SUMask = SUMask(result::unwrap_or!(
-    u16::from_str_radix(env!("RAR_UMASK"), 10),
-    0o022
-));
+/// The umask of a command whose policy sets none (`RAR_UMASK`).
+///
+/// It is written in octal, like the `umask` option of a policy. A value that is not an octal number
+/// up to 777, or a missing build variable, stops the build.
+pub const UMASK: SUMask = SUMask(octal_umask(env!("RAR_UMASK")));
+
+/// `text` read as an octal umask, as `RAR_UMASK` is written: it was read as a decimal number,
+/// so `"0022"` gave 0o026.
+///
+/// # Panics
+/// When `text` is not an octal number from 0 to 777, at build time for `RAR_UMASK`.
+const fn octal_umask(text: &str) -> u16 {
+    match u16::from_str_radix(text, 8) {
+        Ok(mask) if mask <= 0o777 => mask,
+        _ => panic!("RAR_UMASK must be an octal number from 0 to 777"),
+    }
+}
 
 pub const INFO: SInfo = SInfo::const_parse(env!("RAR_EXEC_INFO_DISPLAY"));
 
@@ -1530,5 +1543,28 @@ mod test {
         assert!(convert_string_to_duration("xx:30:00").is_err());
         assert!(convert_string_to_duration("01:xx:00").is_err());
         assert!(convert_string_to_duration("01:30:xx").is_err());
+    }
+
+    // RAR_UMASK is written in octal, like the umask option of a policy; it was read as a decimal
+    // number, and "0022" gave 0o026
+    #[test]
+    fn test_umask_build_value_is_octal() {
+        assert_eq!(octal_umask("0022"), 0o022);
+        assert_eq!(octal_umask("077"), 0o077);
+        assert_eq!(octal_umask("0"), 0);
+        assert_eq!(octal_umask("777"), 0o777);
+        assert_eq!(UMASK.0, u16::from_str_radix(env!("RAR_UMASK"), 8).unwrap());
+    }
+
+    #[test]
+    #[should_panic(expected = "RAR_UMASK must be an octal number from 0 to 777")]
+    fn test_umask_build_value_refuses_decimal_digits() {
+        let _ = octal_umask("0099");
+    }
+
+    #[test]
+    #[should_panic(expected = "RAR_UMASK must be an octal number from 0 to 777")]
+    fn test_umask_build_value_refuses_more_than_777() {
+        let _ = octal_umask("1000");
     }
 }

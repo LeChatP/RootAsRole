@@ -675,11 +675,15 @@ fn test_absent_field_is_inherited() {
             to_json(&settings.root),
             to_json(&rootasrole_core::util::PRIVILEGED),
         );
+        // the build value read in octal, as a policy writes it: "0022" is "022"
         check(
             "umask",
             "",
             to_json(&settings.umask),
-            to_json(&rootasrole_core::util::UMASK),
+            json!(format!(
+                "{:03o}",
+                u16::from_str_radix(env!("RAR_UMASK"), 8).unwrap()
+            )),
         );
         check(
             "tty",

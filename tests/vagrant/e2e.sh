@@ -108,6 +108,7 @@ setup() {
     "tasks": [
       { "name": "shell", "commands": ["/usr/bin/sh ^.*$"] },
       { "name": "date", "commands": ["/usr/bin/date"] },
+      { "name": "umask", "options": { "umask": "027" }, "commands": ["/usr/bin/sh ^-c umask$"] },
       { "name": "echo", "commands": ["/usr/bin/echo ^hello( world)?$"] },
       {
         "name": "service",
@@ -313,6 +314,16 @@ old_policy_is_refused() {
 signal_is_forwarded() {
     as_user dosr -r e2e -t shell /usr/bin/sh -c 'kill -TERM $$'
     [ $? -eq 143 ]
+}
+
+# the command gets the umask of the task, or the build-time one (RAR_UMASK "0022" of
+# .cargo/config.toml, in octal: read as a decimal number, it gave 0026) where the policy sets
+# none, whatever the umask of the caller
+umask_of_the_policy() {
+    local default set
+    default=$(as_user sh -c 'umask 077; dosr -r e2e -t shell /usr/bin/sh -c umask') || return 1
+    set=$(as_user sh -c 'umask 000; dosr -r e2e -t umask /usr/bin/sh -c umask') || return 1
+    [ "$default" = 0022 ] && [ "$set" = 0027 ]
 }
 
 # a regular expression on the arguments, written without quotes
@@ -1805,6 +1816,7 @@ check "the policy, its directory included, is immutable" policy_is_immutable
 check "a policy file without the immutable flag is refused, the user told where the reason is" planted_policy_is_refused
 check "a policy file of an older version, or without one, is refused, the user told where the reason is" old_policy_is_refused
 check "dosr ends like a command killed by a signal" signal_is_forwarded
+check "the command gets the umask of the policy, else the build-time one" umask_of_the_policy
 check "a regular expression without quotes" unquoted_regex
 check "a command written without arguments allows none" command_without_arguments_allows_none
 check "uid 0 without capabilities manages a unit" root_without_capabilities_manages_a_unit

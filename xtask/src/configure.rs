@@ -485,6 +485,16 @@ mod tests {
     }
 
     #[test]
+    fn test_umask_written_is_the_octal_build_value() {
+        // RAR_UMASK is written in octal: for "0022", the policy that configure writes held "026"
+        let build = u16::from_str_radix(env!("RAR_UMASK"), 8).unwrap();
+        assert_eq!(
+            serde_json::to_value(UMASK).unwrap(),
+            serde_json::json!(format!("{build:03o}"))
+        );
+    }
+
+    #[test]
     fn test_debian_service_opens_no_login_session() {
         // pam_systemd and pam_wtmpdb are only in common-session (Session-Interactive-Only)
         let debian = pam_config(&OsTarget::Debian);
