@@ -51,7 +51,7 @@ dosr does not run a shell, like sudo does as well. When you are doing <code>dosr
 
 A user may hold several roles, and several tasks may match the same command. In that case, `dosr` selects the most precise and least privileged task.
 
-The precision comes first. It is about how closely the policy matches you and your command: a command line written in full is more precise than a regular expression on the arguments, which is more precise than a task that accepts any arguments. Then, only when two tasks are equally precise, the one with fewer privileges wins: fewer capabilities, no change to root, and so on.
+The precision comes first. It is about how closely the policy matches you and your command: a command line written in full is more precise than a regular expression on the arguments, which is more precise than a task that accepts any arguments. Then, only when two tasks are equally precise, the one with fewer privileges wins: fewer capabilities, no change to root, and so on. Some capabilities weigh more than their number: a task with one that leads almost directly to root, like `CAP_SYS_ADMIN`, `CAP_DAC_OVERRIDE`, `CAP_SETUID`, or `CAP_BPF` together with `CAP_PERFMON`, loses against a task with more capabilities, none of them such.
 
 Despite this selection, confusion can still arise. When two tasks are entirely equivalent but configure the command differently (for example with different environment variables), `dosr` cannot decide for you. It answers "Permission denied", and logs a warning saying that the policy must be fixed.
 
@@ -72,7 +72,7 @@ By default, the task decides who the command runs as. With `-u` and `-g`, you as
 dosr -g www-data /usr/local/bin/caddy-probe
 ```
 
-`-u` and `-g` do not give you a user: they choose one within the policy.
+`-u` and `-g` do not give you a user: they choose one within the policy. A task without `setuid` refuses `-u`, even `-u` with your own name, and a task without `setgid` refuses `-g`. Both take names, not ids.
 
 When the task changes the user and gives no groups, the command gets the groups of that user, its primary group and its supplementary groups, as a login gives them. It never mixes the new user with your own groups, unless the task asks for it with `"from": "caller"` in its `setgid`. A task that keeps your user keeps your groups.
 
@@ -87,6 +87,8 @@ The command does not inherit your environment. Only the variables allowed by the
 - `RAR_USER`, `RAR_UID`, `RAR_GID` and `RAR_COMMAND`, who asked for what;
 - `SUDO_USER`, `SUDO_UID`, `SUDO_GID` and `SUDO_COMMAND`, the same values, for the scripts written for sudo;
 - `TERM`, set to `unknown` if you had none.
+
+`RAR_COMMAND` and `SUDO_COMMAND` hold the command line up to 4096 bytes. A longer one stops after the last argument that fits whole: the variables hold its start, and a command with very long arguments can still start.
 
 With `-E`, you ask to keep your own variables. It is only accepted by a task that allows it, and even then, the `delete` and `check` lists still apply. See [Preserving the environment with `dosr -E`](../configuration.md#preserving-the-environment-with-dosr--e).
 
@@ -104,7 +106,9 @@ A wrong password is asked again, after "Sorry, try again.", up to 3 times by def
 chsr options password set --tries 3 --delay 00:00:05
 ```
 
-`-p` changes the prompt, and `-S` reads the password from the standard input, when there is no terminal. When two `dosr` of the same pipeline need a password, like in `dosr cat a | dosr tee b`, the second one waits until the first is authenticated, and then reuses its cookie when the timeout allows it. They do not fight for your keystrokes anymore.
+Each wrong password counts for `pam_faillock`, when your PAM stack uses it.
+
+`-p` changes the prompt, and `-S` reads the password from the standard input, when there is no terminal. The prompt and the messages of PAM go to your terminal, or to the standard error with `-S` or without a terminal: never on the standard output, which belongs to the command. When two `dosr` of the same pipeline need a password, like in `dosr cat a | dosr tee b`, the second one waits until the first is authenticated, and then reuses its cookie when the timeout allows it. They do not fight for your keystrokes anymore.
 
 ### Timestamps
 
@@ -124,9 +128,11 @@ If you are using cookies for uid, be warned about this feature. If anyone has ac
 
 ## While the command runs
 
-When you run `dosr` from a terminal, the command gets its own pseudo-terminal: it cannot push characters into your terminal to make your shell run them. `dosr` forwards the signals it receives to the command.
+When you run `dosr` from a terminal, the command gets its own pseudo-terminal: it cannot push characters into your terminal to make your shell run them. `dosr` forwards the signals it receives to the command, also when the command runs as root or as another user: `timeout 10 dosr <command>` and a `kill` of `dosr` in a script reach the command.
 
 - **Ctrl+Z** suspends the command like any shell job, and `fg` or `bg` resumes it. Your unsaved work in an editor is not lost.
+- **Ctrl+C** and **Ctrl+\\** reach every process of the command, like both sides of `sh -c 'a | b'`. A command that reads them as keys, like emacs, gets them as keys.
+- **The signals that you ignore** stay ignored by the command: `nohup dosr <command>` goes on when your terminal hangs up.
 - **When `dosr` has to stop the command itself**, it sends SIGHUP and SIGTERM first, then SIGKILL two seconds later. A package manager or a database has time to remove its lock or to finish a write.
 - **The exit status** is the one of the command. If the command was killed by a signal, `dosr` ends with the same signal, so your shell sees the usual 128 + N: 130 for Ctrl+C, 143 for SIGTERM. The errors of `dosr` itself end with status 1.
 
@@ -137,6 +143,8 @@ Every execution, every refusal and every authentication failure is written to sy
 ```text
 bob : TTY=/dev/pts/0 ; PWD=/home/bob ; ROLE=caddy-audit ; TASK=read-logs ; USER=bob ; GROUPS=adm,systemd-journal ; CAPS=none ; COMMAND=/usr/bin/tail -n 50 /var/log/caddy/access.log
 ```
+
+A long command line is written over several lines of the log, cut where `[...]` marks it, so that nothing is lost.
 
 With systemd, you can read them with:
 
@@ -189,10 +197,12 @@ Today, the CLI of `dosr` follows the one of sudo, to keep old scripts working. W
 
 `Permission denied` --> Two equivalent tasks match: the policy must be fixed. The log has the details.
 
+`Configuration error` --> The policy was refused: for example a file written by hand without its `version`, or written by a version older than 4.1.0 that `chsr upgrade` did not migrate. `dosr` never shows on the terminal what is wrong in the policy, but it says where to read it: ``dosr: see the reason with `journalctl -t dosr -p info`, or ask your system administrator``. The same line follows any error when a file of the policy was refused, like a file of a policy directory that other users can write. The command comes from the build of `dosr` (`RAR_LOG_COMMAND`, see [Build-time default configuration](../install/build.md)).
+
 `dosr: the task needs capabilities that this session cannot obtain anymore: …` --> The task needs capabilities that are out of the bounding set of your session, for example in a container.
 
 `This incident is reported.` --> The authentication failed.
 
-`You need at least dac_read_search or dac_override, setpcap and setuid capabilities to run dosr` --> `dosr` itself lacks its file capabilities: check the installation.
+`dosr: dosr lacks …: its file has no capabilities (setcap '=p'), or its file system is mounted nosuid` --> `dosr` itself lacks its file capabilities: check the installation. When the session cannot give them, `dosr` says why instead: `no_new_privs` is set (a service with `NoNewPrivileges=yes`, a container, or a command that `dosr` runs with `"root": "user"`), or the bounding set of the session lacks them.
 
 In every case, the log says more than the terminal, on purpose.

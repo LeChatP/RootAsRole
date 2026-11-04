@@ -72,7 +72,7 @@ In this figure, `rar-dev` is 4.2.0, just before its release.
 
 **The cost of each rule grew with patterns.** In 4.1.0, the command paths of the policy that contain wildcards were fixed: they never matched before (commit `1c3084f`). The fix matches them with globset patterns. But it compiled every command path of the policy as a pattern, even a path without any wildcard, which costs about 10 µs for each command of each task. In the same release, other changes made a run with a single rule about 2.7 ms faster.
 
-## RootAsRole 4.2.0
+## RootAsRole 4.2.0 (and 4.3.0)
 
 4.2.0 now implement performance indicators unit tests, ignored by default, that print the cost of one task, so that a change can be measured before and after it:
 
