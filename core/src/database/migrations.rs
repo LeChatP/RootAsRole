@@ -542,14 +542,38 @@ fn describe_changes(before: &Value, after: &Value, pointer: &str, changes: &mut 
     }
 }
 
-/// Migrate a raw policy document to the current version, before it is deserialized.
+/// Migrate a raw policy document written by an older version, before it is deserialized: to
+/// [`FORMAT_VERSION`], the version that chsr writes.
 ///
-/// A document without a parsable version, or already at the current version, is left unchanged.
+/// A document without a parsable version, or one that the current version reads as it is (see
+/// [`reads_as_is`]), is left unchanged, its version included: no migration would change it.
 /// Returns what the migration changed, if the document was migrated.
 /// # Errors
 /// Returns an error if a migration fails or if there is no migration path to the current version.
 pub fn migrate_document(document: &mut Value) -> Result<Option<DocumentMigration>, MigrationError> {
-    migrate_document_to(document, &PACKAGE_VERSION)
+    if document_version(document).is_some_and(|version| reads_as_is(&version)) {
+        return Ok(None);
+    }
+    let migration = migrate_document_to(document, &PACKAGE_VERSION)?;
+    // the migrations after FORMAT_VERSION change nothing
+    if migration.is_some()
+        && let Value::Object(map) = document
+    {
+        map.insert(
+            "version".to_string(),
+            Value::String(FORMAT_VERSION.to_string()),
+        );
+    }
+    Ok(migration)
+}
+
+/// The version of a raw policy document, under its long or its short key.
+fn document_version(document: &Value) -> Option<Version> {
+    document
+        .get("version")
+        .or_else(|| document.get("v"))
+        .and_then(Value::as_str)
+        .and_then(|version| Version::parse(version).ok())
 }
 
 /// Migrate a raw policy document to the version `to`, newer or older than its own.
@@ -562,12 +586,7 @@ pub fn migrate_document_to(
     document: &mut Value,
     to: &Version,
 ) -> Result<Option<DocumentMigration>, MigrationError> {
-    let Some(version) = document
-        .get("version")
-        .or_else(|| document.get("v"))
-        .and_then(Value::as_str)
-        .and_then(|version| Version::parse(version).ok())
-    else {
+    let Some(version) = document_version(document) else {
         return Ok(None);
     };
     if version == *to {
@@ -613,6 +632,15 @@ pub fn writable_version(text: &str) -> Result<Version, String> {
 /// up, and the current version gives them the same meaning, or allows less. A
 /// migration that rewrites the documents on the way up raises it to its `to`.
 pub const UNCHANGED_SINCE: Version = Version::new(4, 1, 0);
+
+/// The version that chsr writes in a policy file that it saves: the last version whose migration
+/// changes the documents, on the way up or down.
+///
+/// The versions from it to the current one read and write the same documents: chsr does not
+/// rewrite a file for the current version alone, and a package of one of these versions reads
+/// what a later one wrote, a downgrade among them included. A migration that changes the
+/// documents, in either direction, raises it to its `to`.
+pub const FORMAT_VERSION: Version = Version::new(4, 3, 0);
 
 /// Why the current version does not read a policy document as it is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -662,13 +690,23 @@ pub fn read_as_is(version: Option<&str>) -> Result<(), UnreadableVersion> {
         .map_err(|_| UnreadableVersion::Invalid(text.escape_debug().to_string()))?;
     // the build metadata does not change the format
     version.build = semver::BuildMetadata::EMPTY;
-    if version < UNCHANGED_SINCE {
-        Err(UnreadableVersion::Older(version))
-    } else if version > PACKAGE_VERSION {
-        Err(UnreadableVersion::Newer(version))
-    } else {
+    if reads_as_is(&version) {
         Ok(())
+    } else if version < UNCHANGED_SINCE {
+        Err(UnreadableVersion::Older(version))
+    } else {
+        Err(UnreadableVersion::Newer(version))
     }
+}
+
+/// Whether the current version reads a document of `version` as it is: from [`UNCHANGED_SINCE`]
+/// to the current version. dosr reads it, and chsr does not rewrite it, as it is.
+#[must_use]
+pub fn reads_as_is(version: &Version) -> bool {
+    let mut version = version.clone();
+    // the build metadata does not change the format
+    version.build = semver::BuildMetadata::EMPTY;
+    UNCHANGED_SINCE <= version && version <= PACKAGE_VERSION
 }
 
 #[cfg(test)]
@@ -714,7 +752,8 @@ mod tests {
                 r#"/roles/0/tasks/0/options/env/delete/0: "XDG_.*_DIR" -> "XDG_*_DIR""#,
             ]
         );
-        assert_eq!(document["version"], PACKAGE_VERSION.to_string());
+        // written for the format, which the current version reads
+        assert_eq!(document["version"], FORMAT_VERSION.to_string());
         assert_eq!(document["options"]["env"]["check"], json!(["LC_*", "TZ"]));
         assert_eq!(document["options"]["env"]["keep"], json!(["HOME"]));
         // values of the set list are not patterns
@@ -1257,8 +1296,13 @@ mod tests {
             "options": {"env": {"default": "delete", "check": ["LC_*"]}, "path": {"default": "keep-safe"}},
             "roles": [{"name": "r", "tasks": [{"name": "t", "commands": ["/usr/bin/ls ^.*$"]}]}]
         });
+        // the current version reads it as it is: chsr does not rewrite it
         let mut document = original.clone();
-        let migration = migrate_document(&mut document).unwrap().unwrap();
+        assert_eq!(migrate_document(&mut document).unwrap(), None);
+        assert_eq!(document, original);
+        let migration = migrate_document_to(&mut document, &PACKAGE_VERSION)
+            .unwrap()
+            .unwrap();
         assert_eq!(migration.from, Version::new(4, 1, 0));
         assert_eq!(document["version"], PACKAGE_VERSION.to_string());
         let mut unchanged = original.clone();
@@ -1287,8 +1331,13 @@ mod tests {
             "options": {"password": {"tries": 2}, "tty": {"owner": "target"}},
             "roles": [{"name": "r", "tasks": [{"name": "t", "cred": {"setgid": {"from": "caller"}}, "commands": ["/usr/bin/ls ^a|b$"]}]}]
         });
+        // the current version reads it as it is: chsr does not rewrite it
         let mut document = original.clone();
-        let migration = migrate_document(&mut document).unwrap().unwrap();
+        assert_eq!(migrate_document(&mut document).unwrap(), None);
+        assert_eq!(document, original);
+        let migration = migrate_document_to(&mut document, &PACKAGE_VERSION)
+            .unwrap()
+            .unwrap();
         assert_eq!(migration.from, Version::new(4, 2, 0));
         assert_eq!(document["version"], PACKAGE_VERSION.to_string());
         let mut unchanged = original.clone();
@@ -1309,21 +1358,30 @@ mod tests {
         assert_eq!(document, original);
     }
 
-    // 4.3.1 only changes how dosr reads an older policy, not the format
+    // the versions from FORMAT_VERSION to the current one read and write the same documents: a
+    // document of one of them is not migrated, and goes from one to another unchanged
     #[test]
-    fn test_4_3_0_documents_up_and_down() {
+    fn test_format_version() {
+        assert!(UNCHANGED_SINCE <= FORMAT_VERSION && FORMAT_VERSION <= PACKAGE_VERSION);
         let original = json!({
-            "version": "4.3.0",
-            "options": {"env": {"default": "delete", "keep": ["HOME"]}, "password": {"tries": 2}, "tty": {"owner": "target"}},
-            "roles": [{"name": "r", "tasks": [{"name": "t", "cred": {"setgid": {"from": "caller"}}, "commands": ["/usr/bin/ls"]}]}]
+            "version": FORMAT_VERSION.to_string(),
+            "o": {"e": {"d": "delete", "k": ["HOME"]}},
+            "options": {"password": {"tries": 2}, "tty": {"owner": "target"}, "path": {"default": "keep-safe"}},
+            "roles": [{"name": "r", "tasks": [{"name": "t", "cred": {"setgid": {"from": "caller"}}, "commands": ["/usr/bin/ls ^a|b$", "/usr/bin/cat"]}]}]
         });
+        for version in [FORMAT_VERSION, PACKAGE_VERSION] {
+            let mut document = original.clone();
+            document["version"] = json!(version.to_string());
+            let read = document.clone();
+            assert_eq!(migrate_document(&mut document).unwrap(), None, "{version}");
+            assert_eq!(document, read, "{version}");
+        }
         let mut document = original.clone();
-        let migration = migrate_document(&mut document).unwrap().unwrap();
-        assert_eq!(migration.from, Version::new(4, 3, 0));
-        assert!(migration.changes.is_empty(), "{:?}", migration.changes);
-        assert_eq!(document["version"], PACKAGE_VERSION.to_string());
-        migrate_document_to(&mut document, &Version::new(4, 3, 0)).unwrap();
+        migrate_document_to(&mut document, &PACKAGE_VERSION).unwrap();
+        migrate_document_to(&mut document, &FORMAT_VERSION).unwrap();
         assert_eq!(document, original);
+        // the data that chsr creates or saves is written for it
+        assert_eq!(Versioning::new(()).version, FORMAT_VERSION);
     }
 
     #[test]

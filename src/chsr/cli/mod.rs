@@ -47,6 +47,47 @@ where
     })
 }
 
+/// How `chsr upgrade` opens the policy: it writes nothing with `--check`, nor when it upgrades
+/// for the current version and every file is up to date (see [`upgrade_access`]).
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum UpgradeAccess {
+    /// `--check`: the files are only read.
+    Read,
+    /// For the current version: read first, opened for writing only if a file is to upgrade.
+    ReadFirst,
+    /// `--to` an older version: the files are written.
+    Write,
+}
+
+/// How the command `args` opens the policy, when it is `chsr upgrade`: an upgrade of the package
+/// that runs without `CAP_LINUX_IMMUTABLE`, through dosr, cannot open an immutable policy for
+/// writing, and needs not when it is up to date. `None` for another command, or invalid
+/// arguments, which `main` reports.
+pub fn upgrade_access<I, S>(args: I) -> Option<UpgradeAccess>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let args = escape_parser_string_vec(args);
+    let pairs = Cli::parse(Rule::cli, &args).ok()?;
+    let mut inputs = Inputs::default();
+    for pair in pairs {
+        recurse_pair(pair, &mut inputs).ok()?;
+    }
+    if inputs.action != InputAction::Upgrade {
+        return None;
+    }
+    // the same choice as process::upgrade between the current version and an older one
+    let current = rootasrole_core::PACKAGE_VERSION.to_string();
+    Some(if inputs.upgrade_check {
+        UpgradeAccess::Read
+    } else if inputs.upgrade_to.as_ref().is_none_or(|to| *to == current) {
+        UpgradeAccess::ReadFirst
+    } else {
+        UpgradeAccess::Write
+    })
+}
+
 #[builder]
 pub fn main<I, S>(
     #[builder(start_fn)] storage: &mut FileSettings,
@@ -2819,9 +2860,10 @@ mod tests {
         // upgrade saves the file itself, nothing is left for save_all
         assert!(!upgrade(&path, "upgrade").unwrap());
         let saved = read_json(&path);
+        // written for the format, which this version reads
         assert_eq!(
             saved["version"],
-            rootasrole_core::PACKAGE_VERSION.to_string()
+            rootasrole_core::database::migrations::FORMAT_VERSION.to_string()
         );
         assert_eq!(
             saved["options"]["env"]["check"],
@@ -2833,6 +2875,71 @@ mod tests {
         assert!(!upgrade(&path, "upgrade --check").unwrap());
         assert!(!upgrade(&path, "upgrade").unwrap());
         assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), modified);
+    }
+
+    // chsr upgrade writes nothing with --check, nor when the policy is up to date: an upgrade of
+    // the package through dosr, without CAP_LINUX_IMMUTABLE, cannot open an immutable policy for
+    // writing
+    #[test]
+    fn test_upgrade_access() {
+        let current = rootasrole_core::PACKAGE_VERSION.to_string();
+        for (command, access) in [
+            ("upgrade --check".to_string(), Some(UpgradeAccess::Read)),
+            (
+                "upgrade --check --to 4.1.0".into(),
+                Some(UpgradeAccess::Read),
+            ),
+            ("upgrade".into(), Some(UpgradeAccess::ReadFirst)),
+            (
+                format!("upgrade --to {current}"),
+                Some(UpgradeAccess::ReadFirst),
+            ),
+            ("upgrade --to 4.1.0".into(), Some(UpgradeAccess::Write)),
+            ("r r1 add".into(), None),
+            ("upgrade --unknown".into(), None),
+        ] {
+            assert_eq!(upgrade_access(command.split(' ')), access, "{command}");
+        }
+    }
+
+    #[test]
+    fn test_upgrade_reads_an_up_to_date_policy_only() {
+        let path = format!("{RAR_CFG_PATH}.upgrade_read");
+        let _cleanup = defer(|| {
+            let _ = fs::remove_file(format!("{RAR_CFG_PATH}.upgrade_read"));
+        });
+        let upgrade_read = |command: &str| {
+            let mut settings =
+                FileSettings::read_all(path.as_str(), path.as_str(), StorageMethod::JSON).unwrap();
+            let has_migration = settings.has_migration();
+            (
+                has_migration,
+                main(&mut settings, command.split(' ')).call(),
+            )
+        };
+        // read as it is: 4.1.0, and not writable, like an immutable file without
+        // CAP_LINUX_IMMUTABLE
+        fs::write(
+            &path,
+            format!(
+                r#"{{"version":"4.1.0","storage":{{"method":"json","settings":{{"path":"{path}","immutable":false}}}},"roles":[]}}"#
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o400)).unwrap();
+        let before = fs::read_to_string(&path).unwrap();
+        for command in ["upgrade --check", "upgrade"] {
+            let (has_migration, result) = upgrade_read(command);
+            assert!(!has_migration, "{command}");
+            assert!(!result.unwrap(), "{command}");
+        }
+        assert_eq!(fs::read_to_string(&path).unwrap(), before);
+        // an older one is to upgrade: --check tells it, chsr opens it for writing
+        fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o600)).unwrap();
+        fs::write(&path, before.replace("4.1.0", "4.0.3")).unwrap();
+        let (has_migration, result) = upgrade_read("upgrade --check");
+        assert!(has_migration);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -2873,7 +2980,10 @@ mod tests {
         // the file that cannot be loaded is reported, the other one is upgraded
         assert!(upgrade(&path, "upgrade").is_err());
         let saved = read_json(&policy);
-        assert_eq!(saved["version"], version.to_string());
+        assert_eq!(
+            saved["version"],
+            rootasrole_core::database::migrations::FORMAT_VERSION.to_string()
+        );
         assert_eq!(saved["options"]["env"]["keep"], serde_json::json!(["HOME"]));
         assert_eq!(
             read_json(&invalid)["options"]["env"]["keep"],
@@ -2931,14 +3041,17 @@ mod tests {
             task["commands"],
             serde_json::json!(["/usr/bin/systemctl ^(?:start|stop)$"])
         );
-        // this version reads it again, and upgrades it: what 4.1.0 does not know is lost
-        assert!(upgrade(&path, "upgrade --check").is_err());
+        // this version reads it as it is: chsr upgrade has nothing to write, the file keeps
+        // its version, and what 4.1.0 does not know is lost
+        let modified = fs::metadata(&path).unwrap().modified().unwrap();
+        assert!(!upgrade(&path, "upgrade --check").unwrap());
         assert!(!upgrade(&path, "upgrade").unwrap());
-        assert_eq!(read_json(&path)["version"], version);
+        assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), modified);
+        assert_eq!(read_json(&path)["version"], "4.1.0");
         assert_eq!(read_json(&path)["options"], saved["options"]);
 
-        // below 4.1.0, the words change: dosr of this version refuses the policy until the
-        // older version is installed
+        // below 4.1.0, the words change: dosr of this version reads the policy only through
+        // its migrations until the older version is installed
         assert!(!upgrade(&path, "upgrade --to 4.0.3").unwrap());
         let saved = read_json(&path);
         assert_eq!(saved["version"], "4.0.3");

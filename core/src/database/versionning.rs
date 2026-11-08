@@ -3,9 +3,9 @@ use semver::Version;
 use serde::{Deserialize, Serialize, Serializer, ser::SerializeMap};
 use std::{cell::RefCell, fmt::Debug, rc::Rc};
 
-use crate::{
-    PACKAGE_VERSION,
-    database::migration::{Migration, MigrationError},
+use crate::database::{
+    migration::{Migration, MigrationError},
+    migrations::{FORMAT_VERSION, reads_as_is},
 };
 
 #[derive(Deserialize, Debug, Clone)]
@@ -62,7 +62,7 @@ impl<T: VersionedData> Serialize for Versioning<T> {
 impl<T> Versioning<T> {
     pub const fn new(data: T) -> Self {
         Self {
-            version: PACKAGE_VERSION,
+            version: FORMAT_VERSION,
             data,
         }
     }
@@ -71,7 +71,7 @@ impl<T> Versioning<T> {
 impl<T: Default> Default for Versioning<T> {
     fn default() -> Self {
         Self {
-            version: PACKAGE_VERSION,
+            version: FORMAT_VERSION,
             data: T::default(),
         }
     }
@@ -81,8 +81,12 @@ impl<T> Versioning<T> {
     /// # Errors
     /// Returns an error if the migration process fails.
     pub fn upgrade_version(&mut self, migrations: &[Migration<T>]) -> Result<bool, MigrationError> {
+        // read as it is: it keeps its version until it is saved, written for FORMAT_VERSION
+        if reads_as_is(&self.version) {
+            return Ok(false);
+        }
         let res = Migration::migrate(&self.version, &mut self.data, migrations)?;
-        self.version = PACKAGE_VERSION;
+        self.version = FORMAT_VERSION;
         Ok(res)
     }
 }

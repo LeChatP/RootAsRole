@@ -331,6 +331,25 @@ old_policy_is_read_as_upgraded() {
     [ "$out" = 0 ] && [ "$logged" -eq 0 ] && ! grep -qE 'version|4\.0\.3|journalctl' <<<"$terminal"
 }
 
+# chsr upgrade only reads the policy when it writes nothing: without CAP_LINUX_IMMUTABLE, like an
+# upgrade of the package through dosr, it checks and upgrades the up to date immutable policy, and
+# only fails when a file is to upgrade
+upgrade_without_cap_linux_immutable() {
+    immutable_policy || return 77
+    local without=(capsh --drop=cap_linux_immutable --) check upgrade old_check old_upgrade
+    "${without[@]}" -c 'chsr upgrade --check' >/dev/null 2>&1
+    check=$?
+    "${without[@]}" -c 'chsr upgrade' >/dev/null 2>&1
+    upgrade=$?
+    write_policy "$PLANTED_POLICY" "$(planted_policy 4.0.3)"
+    "${without[@]}" -c 'chsr upgrade --check' >/dev/null 2>&1
+    old_check=$?
+    "${without[@]}" -c 'chsr upgrade' >/dev/null 2>&1
+    old_upgrade=$?
+    remove_policy "$PLANTED_POLICY"
+    [ "$check" -eq 0 ] && [ "$upgrade" -eq 0 ] && [ "$old_check" -ne 0 ] && [ "$old_upgrade" -ne 0 ]
+}
+
 # dosr ends like the command: killed by SIGTERM, the shell sees 143
 signal_is_forwarded() {
     as_user dosr -r e2e -t shell /usr/bin/sh -c 'kill -TERM $$'
@@ -1837,6 +1856,7 @@ check "the policy, its directory included, is immutable" policy_is_immutable
 check "a policy file without the immutable flag is refused, the user told where the reason is" planted_policy_is_refused
 check "a policy file without a version is refused, the user told where the reason is" policy_without_version_is_refused
 check "a policy file of an older version is read as chsr upgrade writes it, with a warning in the log" old_policy_is_read_as_upgraded
+check "chsr upgrade without CAP_LINUX_IMMUTABLE succeeds on an up to date policy, fails on a file to upgrade" upgrade_without_cap_linux_immutable
 check "dosr ends like a command killed by a signal" signal_is_forwarded
 check "the command gets the umask of the policy, else the build-time one" umask_of_the_policy
 check "a regular expression without quotes" unquoted_regex

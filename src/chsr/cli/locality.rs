@@ -7,7 +7,9 @@
 
 use std::{fs, os::unix::fs::PermissionsExt, path::PathBuf};
 
-use rootasrole_core::{PACKAGE_VERSION, file::FileSettings, util::StorageMethod};
+use rootasrole_core::{
+    database::migrations::FORMAT_VERSION, file::FileSettings, util::StorageMethod,
+};
 use serde_json::{Value, json};
 
 use super::main;
@@ -112,7 +114,8 @@ fn generated_policy(rng: &mut Rng, path: &str) -> Value {
         })
         .collect();
     json!({
-        "version": PACKAGE_VERSION.to_string(),
+        // as chsr writes it
+        "version": FORMAT_VERSION.to_string(),
         "storage": {"method": "json", "settings": {"path": path, "immutable": false}},
         "options": options(rng),
         "roles": roles,

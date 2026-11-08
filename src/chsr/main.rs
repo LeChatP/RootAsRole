@@ -49,7 +49,7 @@ fn main() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
     use std::{path::Path, process::ExitCode};
 
     use crate::{
-        cli::editor::defer,
+        cli::{UpgradeAccess, editor::defer},
         util::{CHSR_RUN_DIR, RAR_CFG_DATA_PATH, RAR_CFG_PATH, secure_dir},
     };
     use ::landlock::{RestrictionStatus, RulesetStatus};
@@ -106,8 +106,22 @@ fn main() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
         let _ = std::fs::remove_dir_all(&folder);
     });
 
-    let mut settings = match FileSettings::write_all(RAR_CFG_PATH, RAR_CFG_DATA_PATH, RAR_CFG_TYPE)
-    {
+    let write = || FileSettings::write_all(RAR_CFG_PATH, RAR_CFG_DATA_PATH, RAR_CFG_TYPE);
+    let read = || FileSettings::read_all(RAR_CFG_PATH, RAR_CFG_DATA_PATH, RAR_CFG_TYPE);
+    let settings = match cli::upgrade_access(&args) {
+        Some(UpgradeAccess::Read) => read(),
+        // the read files are unlocked before they are opened again for writing
+        Some(UpgradeAccess::ReadFirst) => read().and_then(|settings| {
+            if settings.has_migration() {
+                drop(settings);
+                write()
+            } else {
+                Ok(settings)
+            }
+        }),
+        Some(UpgradeAccess::Write) | None => write(),
+    };
+    let mut settings = match settings {
         Ok(settings) => settings,
         Err(e) => return Ok(failure(&format!("cannot read the policy: {e}"))),
     };

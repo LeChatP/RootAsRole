@@ -2,7 +2,11 @@ use rootasrole_core::{eprintln_ignore_io_error, println_ignore_io_error};
 use std::error::Error;
 
 use log::debug;
-use rootasrole_core::{PACKAGE_VERSION, database::migrations::read_as_is, file::FileSettings};
+use rootasrole_core::{
+    PACKAGE_VERSION,
+    database::migrations::{FORMAT_VERSION, read_as_is, reads_as_is},
+    file::FileSettings,
+};
 
 /// Escape control characters: paths, entries and errors come from the policy files.
 fn printable(text: &str) -> String {
@@ -54,12 +58,12 @@ fn upgrade_to_current(settings: &mut FileSettings, check: bool) -> Result<bool, 
             pending = true;
             if check {
                 report.push(format!(
-                    "{path}: {}, can be upgraded to {PACKAGE_VERSION}",
+                    "{path}: {}, can be upgraded to {FORMAT_VERSION}",
                     migration.from
                 ));
             } else {
                 report.push(format!(
-                    "{path}: upgraded from {} to {PACKAGE_VERSION}",
+                    "{path}: upgraded from {} to {FORMAT_VERSION}",
                     migration.from
                 ));
             }
@@ -69,8 +73,9 @@ fn upgrade_to_current(settings: &mut FileSettings, check: bool) -> Result<bool, 
                     .iter()
                     .map(|change| format!("  {}", printable(change))),
             );
-        } else if *file.version == PACKAGE_VERSION {
-            report.push(format!("{path}: {PACKAGE_VERSION}, up to date"));
+        } else if reads_as_is(file.version) {
+            // not written again for this version alone
+            report.push(format!("{path}: {}, up to date", file.version));
         } else {
             blocked = true;
             report.push(format!(
@@ -111,7 +116,9 @@ fn write_for(settings: &mut FileSettings, check: bool, to: &str) -> Result<bool,
         let path = printable(&file.path.display().to_string());
         match file.result {
             Ok(migration) => {
-                report.push(if check {
+                report.push(if migration.from.to_string() == to {
+                    format!("{path}: already written for {to}")
+                } else if check {
                     format!("{path}: {}, can be written for {to}", migration.from)
                 } else {
                     format!("{path}: written for {to}, from {}", migration.from)
