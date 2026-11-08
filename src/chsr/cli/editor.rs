@@ -10,7 +10,9 @@ use log::{debug, warn};
 use rootasrole_core::{
     PACKAGE_VERSION,
     database::{
-        migrations::{DocumentMigration, UnreadableVersion, migrate_document, read_as_is},
+        migrations::{
+            DocumentMigration, FORMAT_VERSION, UnreadableVersion, migrate_document, read_as_is,
+        },
         structs::SPolicy,
         warn::Warn,
     },
@@ -326,7 +328,7 @@ where
                 if let Some(migration) = migration {
                     writeln!(
                         output,
-                        "Written for RootAsRole {}, migrated to {PACKAGE_VERSION}:",
+                        "Written for RootAsRole {}, migrated to {FORMAT_VERSION}:",
                         migration.from
                     )?;
                     // the values are JSON, and the keys escaped
@@ -888,9 +890,11 @@ echo '{ "storage": { "method": "json" }, "unknown_config_field": "foo" }' > "$fi
             &serde_json::json!({"version": "4.0.3", "options": {"env": {"check": ["LC_.*"]}}}),
             b"y\n",
         );
+        // written for the format, which this version reads
+        let format = rootasrole_core::database::migrations::FORMAT_VERSION.to_string();
         assert!(
             output.contains(&format!(
-                "Written for RootAsRole 4.0.3, migrated to {version}:"
+                "Written for RootAsRole 4.0.3, migrated to {format}:"
             )),
             "{output}"
         );
@@ -899,7 +903,7 @@ echo '{ "storage": { "method": "json" }, "unknown_config_field": "foo" }' > "$fi
             "{output}"
         );
         let saved: Value = serde_json::from_str(&saved).unwrap();
-        assert_eq!(saved["version"], version.as_str());
+        assert_eq!(saved["version"], format.as_str());
         assert_eq!(
             saved["options"]["env"]["check"],
             serde_json::json!(["LC_*"])

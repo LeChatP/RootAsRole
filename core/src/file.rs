@@ -21,7 +21,10 @@ use crate::{
     PACKAGE_VERSION, SettingsContent,
     database::{
         migration::{Migration, MigrationError},
-        migrations::{DocumentMigration, migrate_document, migrate_document_to, writable_version},
+        migrations::{
+            DocumentMigration, FORMAT_VERSION, migrate_document, migrate_document_to,
+            writable_version,
+        },
         ser::field,
         structs::SPolicy,
         versionning::{VersionedData, Versioning},
@@ -630,9 +633,15 @@ impl FileSettings {
         //
         // only the files that changed: the others are not rewritten (in the typed form of the
         // actors, without their immutable flag for a while...)
+        //
+        // a file that is written gets the version of the format, which its content follows; the
+        // others keep theirs
         let mut has_errors = if !self.root.changed() {
             false
-        } else if let Err(e) = self.root.save(RAR_CFG_TYPE, immutable) {
+        } else if let Err(e) = {
+            self.root.data.version = FORMAT_VERSION;
+            self.root.save(RAR_CFG_TYPE, immutable)
+        } {
             error!("Failed to save root settings: {e}");
             true
         } else {
@@ -641,6 +650,7 @@ impl FileSettings {
         };
 
         for config in self.map.iter_mut().filter(|config| config.changed()) {
+            config.data.version = FORMAT_VERSION;
             if let Err(e) = config.save(self.root.data.data.storage.method, immutable) {
                 error!(
                     "Failed to save settings for {}: {}",
@@ -713,8 +723,12 @@ impl FileSettings {
     ) -> FileDowngrade {
         let mut write = || -> Result<DocumentMigration, Box<dyn Error>> {
             let mut document = file.document(method)?;
+            // its version is known, the one of the loaded data: only already `to`
             let Some(migration) = migrate_document_to(&mut document, to)? else {
-                return Err(format!("its version is not known, or is already {to}").into());
+                return Ok(DocumentMigration {
+                    from: to.clone(),
+                    changes: Vec::new(),
+                });
             };
             if !check {
                 file.save_document(&document, method, immutable)?;
@@ -726,6 +740,12 @@ impl FileSettings {
             path: file.path.clone(),
             result,
         }
+    }
+
+    /// Whether a loaded file was migrated, and is to be saved by `save_migrated`.
+    #[must_use]
+    pub fn has_migration(&self) -> bool {
+        self.root.migration.is_some() || self.map.iter().any(|config| config.migration.is_some())
     }
 
     /// The version of each loaded file, root settings first.
@@ -861,7 +881,8 @@ mod tests {
         )
         .unwrap();
         let policy = FileSettings::read_policy(&path, StorageMethod::JSON).unwrap();
-        assert_eq!(policy.data.version, PACKAGE_VERSION);
+        // migrated for the format, which the current version reads
+        assert_eq!(policy.data.version, FORMAT_VERSION);
         let options = policy.data.data.as_ref().borrow().options.clone().unwrap();
         let check = options
             .as_ref()
@@ -1454,7 +1475,7 @@ mod tests {
         file.read_to_end(&mut content).unwrap();
         let deserialized: Versioning<Rc<RefCell<SPolicy>>> =
             cbor4ii::serde::from_reader(&content[..]).unwrap();
-        assert_eq!(deserialized.version, PACKAGE_VERSION);
+        assert_eq!(deserialized.version, FORMAT_VERSION);
     }
 
     #[test]

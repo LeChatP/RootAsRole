@@ -197,7 +197,7 @@ Today, the CLI of `dosr` follows the one of sudo, to keep old scripts working. W
 
 `Permission denied` --> Two equivalent tasks match: the policy must be fixed. The log has the details.
 
-`Configuration error` --> The policy was refused: for example a file written by hand without its `version`, or written by a version older than 4.1.0 that `chsr upgrade` did not migrate. `dosr` never shows on the terminal what is wrong in the policy, but it says where to read it: ``dosr: see the reason with `journalctl -t dosr -p info`, or ask your system administrator``. The same line follows any error when a file of the policy was refused, like a file of a policy directory that other users can write. The command comes from the build of `dosr` (`RAR_LOG_COMMAND`, see [Build-time default configuration](../install/build.md)).
+`Configuration error` --> The policy was refused: for example a file written by hand without its `version`. `dosr` never shows on the terminal what is wrong in the policy, but it says where to read it: ``dosr: see the reason with `journalctl -t dosr -p info`, or ask your system administrator``. The same line follows any error when a file of the policy was refused, like a file of a policy directory that other users can write. The command comes from the build of `dosr` (`RAR_LOG_COMMAND`, see [Build-time default configuration](../install/build.md)).
 
 `dosr: the task needs capabilities that this session cannot obtain anymore: …` --> The task needs capabilities that are out of the bounding set of your session, for example in a container.
 

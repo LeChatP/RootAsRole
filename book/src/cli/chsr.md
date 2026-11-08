@@ -290,7 +290,7 @@ Read the resulting configuration before you answer yes: what <code>chsr</code> s
 
 ## `chsr upgrade`
 
-A new version of RootAsRole may change how the policy is written. After an upgrade, `chsr upgrade` rewrites the policy files in the format of the installed version. Packages run it for you during their updates.
+A new version of RootAsRole may change how the policy is written. After an upgrade, `chsr upgrade` might do necessary migrations.
 
 ```bash
 chsr upgrade --check
@@ -303,8 +303,6 @@ Going back to an older version needs the same care, the other way. Before instal
 ```bash
 chsr upgrade --to 4.1.0
 ```
-
-`chsr` writes every policy file for that version, and changes what that version would read with another meaning. With `--check`, it writes nothing. For a version older than 4.1.0, the installed `dosr` refuses the files written this way until the older version is installed.
 
 ## File Format Conversion
 

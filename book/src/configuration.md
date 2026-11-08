@@ -569,7 +569,8 @@ For `sys-admin`, the most critical role, the team requires authentication on eve
 
 ### Migrating configurations from version 4.0
 
-Upgrading from version 4.0 requires running `chsr upgrade` as root. Package maintenance scripts run it automatically during updates.
+Upgrading from breaking changes version requires running `chsr upgrade`. 
+Package maintenance scripts run it automatically during updates, but if you ran the package upgrade with `dosr`, you might not have `CAP_LINUX_IMMUTABLE`, blocking the file modification. In that case, run `dosr chsr upgrade` manually to migrate the configuration. We'll try to avoid breaking changes in the future, but security-default changes are sometimes unavoidable.
 
 This utility addresses differences in pattern syntax and list inheritance:
 
