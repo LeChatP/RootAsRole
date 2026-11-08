@@ -280,15 +280,12 @@ planted_policy_is_refused() {
         grep -qF "Permission denied" <<<"$denied" && ! grep -qF 'journalctl' <<<"$denied"
 }
 
-# a policy file of a version that gives it another meaning is refused, the immutable flag
-# included: 4.0.3, which chsr upgrade did not migrate, or none
-old_policy_is_refused() {
-    local version out since terminal logged=1 allowed=0
-    for version in 4.0.3 ""; do
-        write_policy "$PLANTED_POLICY" "$(planted_policy "$version" | sed '/"version": ""/d')"
-        out=$(as_user dosr /usr/bin/id -u 2>/dev/null)
-        [ -z "$out" ] || allowed=1
-    done
+# a policy file without a version is refused, the immutable flag included: dosr does not know
+# what its words mean
+policy_without_version_is_refused() {
+    local out since terminal logged=1
+    write_policy "$PLANTED_POLICY" "$(planted_policy "" | sed '/"version": ""/d')"
+    out=$(as_user dosr /usr/bin/id -u 2>/dev/null)
     # the reason is in the log only: dosr shows nothing of the policy to the user who runs it,
     # only the command that shows the log, with which this user reads it
     since=$(date '+%Y-%m-%d %H:%M:%S')
@@ -303,11 +300,35 @@ old_policy_is_refused() {
         sleep 1
     done
     write_policy "$PLANTED_POLICY" "$(planted_policy "$(installed_version)")"
-    out=$(as_user dosr /usr/bin/id -u 2>/dev/null)
+    local current
+    current=$(as_user dosr /usr/bin/id -u 2>/dev/null)
     remove_policy "$PLANTED_POLICY"
-    [ "$allowed" -eq 0 ] && [ "$out" = 0 ] && [ "$logged" -eq 0 ] &&
+    [ -z "$out" ] && [ "$current" = 0 ] && [ "$logged" -eq 0 ] &&
         ! grep -q "version" <<<"$terminal" &&
         grep -qF "dosr: see the reason with \`${LOG_COMMAND[*]}\`" <<<"$terminal"
+}
+
+# a policy file of an older version is read as chsr upgrade writes it, the immutable flag
+# included, with a warning in the log only: a 4.0.3 file whose check list holds a regular
+# expression, like the policy of the Debian package of 4.0.2, which 4.3.0 refused
+old_policy_is_read_as_upgraded() {
+    local out since terminal logged=1
+    since=$(date '+%Y-%m-%d %H:%M:%S')
+    sleep 1
+    write_policy "$PLANTED_POLICY" "$(planted_policy 4.0.3 |
+        sed 's|"authentication": "skip" }|"authentication": "skip", "env": { "check": ["LC_.*"] } }|')"
+    out=$(as_user dosr /usr/bin/id -u 2>/dev/null)
+    terminal=$(as_user dosr /usr/bin/id -u 2>&1 >/dev/null)
+    for _ in 1 2 3 4 5; do
+        if as_user "${LOG_COMMAND[@]}" --since "$since" -o cat |
+            grep -qF "$PLANTED_POLICY: the policy was written by RootAsRole 4.0.3, dosr reads it as chsr upgrade writes it"; then
+            logged=0
+            break
+        fi
+        sleep 1
+    done
+    remove_policy "$PLANTED_POLICY"
+    [ "$out" = 0 ] && [ "$logged" -eq 0 ] && ! grep -qE 'version|4\.0\.3|journalctl' <<<"$terminal"
 }
 
 # dosr ends like the command: killed by SIGTERM, the shell sees 143
@@ -1814,7 +1835,8 @@ setup
 check "the installed binaries belong to root, dosr has its capabilities" installed_binaries_belong_to_root
 check "the policy, its directory included, is immutable" policy_is_immutable
 check "a policy file without the immutable flag is refused, the user told where the reason is" planted_policy_is_refused
-check "a policy file of an older version, or without one, is refused, the user told where the reason is" old_policy_is_refused
+check "a policy file without a version is refused, the user told where the reason is" policy_without_version_is_refused
+check "a policy file of an older version is read as chsr upgrade writes it, with a warning in the log" old_policy_is_read_as_upgraded
 check "dosr ends like a command killed by a signal" signal_is_forwarded
 check "the command gets the umask of the policy, else the build-time one" umask_of_the_policy
 check "a regular expression without quotes" unquoted_regex

@@ -34,10 +34,13 @@ use crate::{
 
 pub const ROOT_MIGRATIONS: &[Migration<RootSettings>] = &[];
 
-/// Read a policy document without interpreting it, so that it can be migrated first.
-fn read_document(method: StorageMethod, file: &File) -> io::Result<serde_json::Value> {
+/// Read a policy document without interpreting it, so that it can be migrated first: chsr reads
+/// every file this way, and dosr a file written by an older version.
+/// # Errors
+/// Returns an error if the file is not one document in the format `method`, with nothing after it.
+pub fn read_document(method: StorageMethod, file: &File) -> io::Result<serde_json::Value> {
     match method {
-        StorageMethod::JSON => serde_json::from_reader(file).map_err(|e| {
+        StorageMethod::JSON => serde_json::from_reader(BufReader::new(file)).map_err(|e| {
             debug!("Failed to read the document: {e}");
             io::Error::new(io::ErrorKind::InvalidData, e)
         }),
