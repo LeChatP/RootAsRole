@@ -172,13 +172,6 @@ user-id = 6094
 user-login = "asomers"
 user-name = "Alan Somers"
 
-[[publisher.nonstick2]]
-version = "0.1.5"
-when = "2026-10-27"
-user-id = 287349
-user-login = "LeChatP"
-user-name = "LeChatP"
-
 [[publisher.prettyplease]]
 version = "0.3.0"
 when = "2026-07-18"
@@ -300,13 +293,6 @@ user-name = "Manish Goregaokar"
 
 [[publisher.windows-link]]
 version = "0.2.1"
-when = "2025-10-06"
-user-id = 64539
-user-login = "kennykerr"
-user-name = "Kenny Kerr"
-
-[[publisher.windows-sys]]
-version = "0.61.2"
 when = "2025-10-06"
 user-id = 64539
 user-login = "kennykerr"
