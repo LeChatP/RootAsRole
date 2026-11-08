@@ -1,7 +1,7 @@
 # `chsr`
 
 <blockquote class="caroot-stare">
-This section is AI-generated and reviewed by human.
+This section is AI-generated and reviewed by human. The content needs rewriting.
 </blockquote>
 
 `chsr` (change switch role) is the tool that writes the policy that `dosr` reads. It manages roles, tasks, commands, credentials and options, and it refuses the values that `dosr` would not accept, instead of writing them.
@@ -292,8 +292,6 @@ Read the resulting configuration before you answer yes: what <code>chsr</code> s
 
 A new version of RootAsRole may change how the policy is written. After an upgrade, `chsr upgrade` rewrites the policy files in the format of the installed version. Packages run it for you during their updates.
 
-This is not optional: the same words may mean something else from one version to another. So `dosr` refuses a policy file written before 4.1.0, written by a newer version, or without a `version`, and writes the reason in the log.
-
 ```bash
 chsr upgrade --check
 ```
@@ -345,5 +343,6 @@ Keep the converted files in a protected system path, owned by root, and make the
 ## Operational notes
 
 - Keep the policy under version control, or at least keep a backup, before large changes.
+- `chsr` does not check that you can still run it after a change. If a change removes your role, or the task that runs `chsr`, or narrows it, your next `dosr chsr` is refused. Only root with all its privileges can then repair the policy, from a root console or a rescue boot, since the files are immutable. Before such a change, keep a way to become root that does not go through the policy, and run `dosr chsr list` once after it.
 - Check what a user can do with `dosr -i <command>`, on a task where `execinfo` is `show`, or read the policy with `chsr list`.
 - After a conversion or an upgrade, run a command of each critical task once.
