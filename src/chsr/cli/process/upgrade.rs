@@ -135,7 +135,7 @@ fn write_for(settings: &mut FileSettings, check: bool, to: &str) -> Result<bool,
     blocked |= report_ignored(settings, &mut report);
     if !check && read_as_is(Some(to)).is_err() {
         report.push(format!(
-            "dosr {PACKAGE_VERSION} refuses a policy written for {to}: install RootAsRole {to} now"
+            "dosr {PACKAGE_VERSION} reads a policy written for {to} only through its migrations, without what {to} does not know: install RootAsRole {to} now"
         ));
     }
     for line in report {

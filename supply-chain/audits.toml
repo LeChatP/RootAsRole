@@ -1,22 +1,460 @@
 
 # cargo-vet audits file
 
+[[audits.bitflags]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "2.11.1 -> 2.13.2"
+notes = "AI-assisted review (Claude). New #[bitflags(flag_name = ...)] attribute (macro munchers), all_named and iter_equal_names, all() computed in a const. Crate is forbid(unsafe_code) outside tests; no build script."
+
+[[audits.block-buffer]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.12.1"
+notes = "AI-assisted review (Claude). Full read (756 lines). No build script, no I/O, no FFI. MaybeUninit block with the eager cursor in the last byte; every unsafe read and write checked against the cursor invariant (pos < block size for Eager, <= for Lazy); ResetGuard restores it if compress panics; deserialize rejects a bad cursor or non-zero bytes after it; block sizes 1..=255 enforced at compile time."
+
+[[audits.block-buffer]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "0.10.4 -> 0.12.1"
+notes = "AI-assisted review (Claude). Rewrite read in full (756 lines): MaybeUninit block with the eager cursor in the last byte; every unsafe write checked against the cursor invariant, ResetGuard restores it if compress panics, deserialize validates; block sizes 1..=255 enforced at compile time."
+
+[[audits.bytecheck]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.8.3"
+notes = "AI-assisted review (Claude). All unsafe CheckBytes impls checked: primitives/floats/atomics accept every pattern, bool 0|1, char via char::try_from on an unaligned read, tuples/arrays/slices/Range per element through raw pointers, str UTF-8, CStr from_bytes_with_nul, NonZero != 0."
+
+[[audits.bytecheck]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "0.8.2 -> 0.8.3"
+notes = "AI-assisted review (Claude). Version bump of Cargo.toml and of the bytecheck_derive pin only; the other files only change from CRLF to LF line endings."
+
+[[audits.bytecheck_derive]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.8.3"
+notes = "AI-assisted review (Claude). Enum codegen: explicit primitive repr required, unknown tag -> InvalidEnumDiscriminantError, per-variant repr(C) layout with leading tag, fields checked through addr_of! (no reference to unvalidated bytes); struct codegen uses the same field helpers."
+
+[[audits.bytecheck_derive]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "0.8.2 -> 0.8.3"
+notes = "AI-assisted review (Claude). Cargo.toml only: version, syn 2 -> 3."
+
 [[audits.capctl]]
 who = "LeChatP <lechatp@outlook.fr>"
 criteria = "safe-to-deploy"
 version = "0.2.4"
 notes = "The capctl crate demonstrates strong security practices with careful handling of Linux capabilities and syscalls."
 
+[[audits.cbor4ii]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "1.2.4"
+notes = "AI-assisted review (Claude). Decoder read in full (no unsafe): depth limit 256, byte strings reserve at most 16 KiB and grow only as bytes arrive, arrays/maps reserve at most 256 elements, lengths through usize::try_from, major-type mismatch and reserved additional info rejected, UTF-8 checked, no panic path found. RaR feeds it the root-owned policy and timestamp cookies."
+
+[[audits.cbor4ii]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "1.2.2 -> 1.2.4"
+notes = "AI-assisted review (Claude). Fix: an indefinite-length byte or text string now consumes its BREAK byte (is_break), depth guard kept; serde deserialize_any decodes negative integers as i128 and visits i64 when it fits. No unsafe touched."
+
+[[audits.const_format]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "0.2.36 -> 0.2.37"
+notes = "AI-assisted review (Claude). README reformatting and three macro_rules matchers (expr -> tt); compile-time only, no unsafe, no build script."
+
+[[audits.const_format_proc_macros]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "0.2.34 -> 0.2.37"
+notes = "AI-assisted review (Claude). Cargo.toml only: the [features] table moved, same content."
+
+[[audits.const_panic]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "0.2.15 -> 0.2.17"
+notes = 'AI-assisted review (Claude). MAX_PANIC_MSG_LEN may be set at compile time through option_env!("CONST_PANIC_MAX_LENGTH") (checked decimal parsing), 512 on 16-bit targets; is_empty, renames, docs. Same 8 unsafe sites, untouched.'
+
+[[audits.crossbeam-utils]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "0.8.21 -> 0.8.23"
+notes = "AI-assisted review (Claude). build.rs reads TARGET for the tsan target; const AtomicCell::into_inner via a by-value union transmute with size assert; CachePadded repr(C); ShardedLock guards in MaybeUninit, read only for locked shards; WaitGroup on an AtomicUsize with lock-then-notify. Sound."
+
+[[audits.crypto-common]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.2.2"
+notes = "AI-assisted review (Claude). Full read (lib.rs, hazmat.rs, generate.rs; 853 lines). forbid(unsafe_code), no_std, no build script, no I/O. Traits and size aliases over hybrid-array; slice constructors go through TryFrom and return InvalidLength. Note: the [u128; N] SerializableState impl uses an element size of U8 and panics in serialize/deserialize; nothing in RaR's graph uses it."
+
+[[audits.crypto-common]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "0.1.7 -> 0.2.2"
+notes = "AI-assisted review (Claude). forbid(unsafe_code) kept; generic-array replaced by hybrid-array; slice constructors through TryFrom; new hazmat::SerializableState, Generate, TryKeyInit. Note: the u128 array SerializableState impl uses an element size of U8 and would panic; not used by sha2."
+
+[[audits.darling]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "0.23.0 -> 0.24.1"
+notes = "AI-assisted review (Claude). Proc-macro support crate: version pins, syn 3 dev-dependency, new examples and tests, export module re-exports TryFrom, Clone and PhantomData, docs."
+
+[[audits.darling_core]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "0.23.0 -> 0.24.1"
+notes = "AI-assisted review (Claude). Proc-macro support code (compile time). Whole 0.24.1 source scanned: no unsafe, no fs/process/net/env/include. Changes skimmed: crate = ..., transparent newtypes, with on ident, TryFrom<&syn::Data>, deferred parse errors; generated code uses only _darling::export items."
+
+[[audits.darling_macro]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "0.23.0 -> 0.24.1"
+notes = "AI-assisted review (Claude). Cargo.toml only: darling_core pin and syn 3."
+
+[[audits.digest]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.11.3"
+notes = "AI-assisted review (Claude). Full read of the code built for RaR (default features: block-api); mac, xof and dev modules read too. forbid(unsafe_code), no_std, no build script, no I/O. Digest/DynDigest wrappers, buffer_fixed! update/finalize/reset paths, CtOutWrapper truncation (OutSize <= OutputSize enforced by a type bound), Mac verify paths check the tag length before indexing."
+
+[[audits.digest]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "0.10.7 -> 0.11.3"
+notes = "AI-assisted review (Claude). forbid(unsafe_code). Read the block API traits, CtOutWrapper (left truncation for SHA-224/384) and the buffer_fixed! update/finalize/reset paths; other modules (xof, mac, dev) skimmed."
+
+[[audits.enumflags2]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.7.12"
+notes = "AI-assisted review (Claude). BitFlags invariant (only defined bits) upheld by every safe constructor; single-bit transmute_copy in exactly_one and the iterator is sound because the derive asserts one bit per variant."
+
+[[audits.enumflags2_derive]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.7.12"
+notes = "AI-assisted review (Claude). Requires an unsigned integer repr and asserts at compile time that each variant value is a power of two; Rust forbids duplicate discriminants."
+
+[[audits.equivalent]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "1.0.2 -> 1.0.3"
+notes = "AI-assisted review (Claude). Documentation of the trait contracts only."
+
+[[audits.goblin]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.10.7"
+notes = "AI-assisted review (Claude). Scope: the code chsr compiles (features alloc, elf32, elf64, endian_fd; no std, PE, Mach-O, archive). All 36 unsafe occurrences classified (Plain impls on integer-only structs, std-only from_fd readers not compiled, raw-pointer constructors not used); Elf::parse_with_opts read: bounds-checked scroll reads, counts checked against the buffer size before allocation. Rest of the ELF logic and the other formats not traced line by line."
+
+[[audits.hybrid-array]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.4.15"
+notes = "AI-assisted review (Claude). All unsafe sites read; soundness rests on ArraySize::USIZE == N, verified by script for all 820 size mappings; split offsets bounded by typenum Sub bounds; slice casts length-checked; from_fn drop guard; flatten/unflatten through ManuallyDrop. No build script, no I/O."
+
+[[audits.landlock]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.4.7"
+notes = "AI-assisted review (Claude). Ruleset create/add_rule/restrict_self, compat logic, PathFd (O_PATH|O_CLOEXEC), prctl and errata read; UAPI constants and struct layouts compared with linux-api-headers 7.2: identical (the 24-byte ruleset attr is accepted by newer kernels). Note: Erratum::current() puts kernel bits into BitFlags with from_bits_unchecked; Linux 7.2 already reports an erratum bit unknown to 0.4.7 (0xf), so iterating or Debug-printing the result is UB (segfault in release); RaR does not call it."
+
+[[audits.landlock]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "0.4.4 -> 0.4.7"
+notes = "AI-assisted review (Claude). restrict_self compared with 0.4.4: same no_new_privs and compat logic (moved to prctl.rs), restrict flags stay 0 unless the new log/TSYNC options are used. ABI V7-V9, AccessFs::ResolveUnix (V9). Note: Erratum::current() uses from_bits_unchecked on kernel bits (latent UB with unknown future bits); not called by the crate outside tests."
+
+[[audits.libpam-sys]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.2.0"
+notes = "AI-assisted review (Claude). Whole crate read. build.rs links pam. Constants and struct layouts compared mechanically with the Linux-PAM 1.7.3 headers (C program vs Rust program, x86_64): 69 constants and the size and field offsets of pam_conv, pam_message, pam_response, pam_xauth_data, pam_modutil_privs all identical. Prototypes match up to C const qualifiers."
+
+[[audits.libpam-sys-helpers]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.2.0"
+notes = "AI-assisted review (Claude). Whole crate read. Note: BinaryPayload::fill is a safe fn that writes the 5-byte header through a cast of the caller's slice without checking its length (out-of-bounds write for a slice shorter than 5 bytes); OwnedBinaryPayload::new sizes it correctly and nonstick2 reaches binary payloads only with its linux-pam-ext feature, off in RaR."
+
+[[audits.libpam-sys-impls]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.2.0"
+notes = "AI-assisted review (Claude). Whole crate read. Build-time selection of the PAM implementation: LIBPAMSYS_IMPL or the target OS (linux -> Linux-PAM); dlopen/dlsym of libpam only with LIBPAMSYS_IMPL=__installed__."
+
+[[audits.libseccomp]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.4.0"
+notes = "AI-assisted review (Claude). Scope: what chsr uses (context new/add_arch/add_rule/load/drop, ScmpSyscall::from_name with NUL and length checks, action and arch conversions, errno mapping, build.rs pkg-config probe). ScmpArgCompare is repr(transparent) over scmp_arg_cmp. notify.rs and per-arch syscall tables only skimmed."
+
+[[audits.libseccomp-sys]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.3.0"
+notes = "AI-assisted review (Claude). Bindings compared mechanically with seccomp.h of libseccomp 2.6.0: 60 constants, 19 enum values and 7 struct sizes identical; SCMP_ACT_ERRNO/TRACE helpers equal the C macros. build.rs links seccomp."
+
+[[audits.log]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "0.4.33 -> 0.4.34"
+notes = "AI-assisted review (Claude). New alloc feature (std implies it); Box<dyn Log> and set_boxed_logger gated on alloc instead of std. No unsafe change."
+
+[[audits.munge]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.4.7"
+notes = "AI-assisted review (Claude). Destructuring of places: the pattern is type-checked against the real type in an unreachable test block (exhaustive, no Deref), projections use addr_of_mut!, move destructuring through ManuallyDrop."
+
+[[audits.munge_macro]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.4.7"
+notes = "AI-assisted review (Claude). Proc macro generating munge's projections (addr_of_mut! on fields and indices) and its unreachable type-check block."
+
+[[audits.nix]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "0.30.1 -> 0.31.3"
+notes = "AI-assisted review (Claude). Dir uses readdir with errno cleared and copies the name into a CString; epoll/kqueue flags from_bits_retain instead of unwrap; ptrace::syscall_info passes the size; SigHandler loses PartialEq; new APIs on other OSes. build.rs unchanged. Note: on 32-bit glibc, readdir is not LFS unless libc's unstable opt-in is set."
+
+[[audits.nonstick2]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.1.5"
+notes = "AI-assisted review (Claude). Fork of nonstick 0.1.1: the whole fork diff and the application path read (handle start/typestate/teardown, conversation callback, questions, answers, memory, environ, items, Demux, logging with a fixed %s format). Conversation counts and NULL lists rejected, panics caught at the C boundary, answers volatile-zeroed, one pam_end. Notes: an answer freed on the error path of Answers::build is not zeroed; account_management yields a transaction on NewAuthTokRequired (dosr denies on any error). Module-side entry points only skimmed."
+
+[[audits.pest]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "2.9.5"
+notes = "AI-assisted review (Claude). No unsafe, no build script; env and I/O only in tests. Read the runtime that generated parsers call: Position and Span keep every index on a char boundary (match_string compares whole UTF-8 sequences, skip_until stops only on lead bytes, match_insensitive goes through str::get); ParserState rule/sequence/repeat/optional/lookahead/atomic restore the position, token queue and stack on failure; call limit and 64 KiB native stack guard; Stack snapshots; Pair accessors. Unicode tables: the general categories match UnicodeData.txt 18.0.0 for all 1112064 scalar values (checked by script); binary-property and script tables not checked, RaR's grammars use only LETTER and CASED_LETTER. chsr's grammar built with this version: 300000 random inputs, 0 panics; a 2 MB input parses in 0.1 s."
+
+[[audits.pest]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "2.8.6 -> 2.9.5"
+notes = 'AI-assisted review (Claude). No unsafe in either version; no I/O outside tests. Parser state fails with "stack limit reached" below 64 KiB of native stack (pest_stack_guard), call limit exhaustion short-circuits; nested snapshot fix in stack.rs; ConstPrattParser; PairsBuilder. Generated unicode tables not read.'
+
+[[audits.pest_derive]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "2.9.5"
+notes = "AI-assisted review (Claude). Proc macro: one function that forwards to pest_generator::derive_parser with include_grammar = true. No unsafe, no build script."
+
+[[audits.pest_derive]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "2.8.6 -> 2.9.5"
+notes = "AI-assisted review (Claude). Version pins, new tests (one spawns current_exe on fixed stack sizes, test-only), docs and format-string cleanups."
+
+[[audits.pest_generator]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "2.9.5"
+notes = "AI-assisted review (Claude). Proc-macro back end. No unsafe, no build script. Reads only the grammar file named by #[grammar] (under CARGO_MANIFEST_DIR or its src/) and emits include_str! of it for rebuild tracking; the generated code only calls pest::ParserState methods and has no unsafe."
+
+[[audits.pest_generator]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "2.8.6 -> 2.9.5"
+notes = "AI-assisted review (Claude). syn 3; generated rules whose body is an identifier or a choice start with state.check_stack_limit()? (pest 2.9 stack guard); not-bootstrap-in-src feature removed; format-string cleanups."
+
+[[audits.pest_meta]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "2.9.5"
+notes = "AI-assisted review (Claude). Compile-time grammar parser, validator and optimizer. No unsafe, no build script, I/O only in #[cfg(test)]. The generated src/grammar.rs is the token-for-token output of pest_generator 2.9.5 on the shipped grammar.pest (regenerated and compared). Optimizer passes read: the lister pass rewrites (a ~ b)* ~ a into a ~ (b ~ a)*, which accepts more input than the PEG rule (pest-parser/pest issue 1224, open); a scan of RaR's chsr and sudoers grammars finds no rule that it rewrites."
+
+[[audits.pest_meta]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "2.8.6 -> 2.9.5"
+notes = "AI-assisted review (Claude). Compile-time grammar crate. Drops the not-bootstrap-in-src feature and its cargo/sha2 build-dependencies; new conservative stack-loop validator; optimizer and Display fixes. No unsafe; I/O only in #[cfg(test)]. Generated grammar.rs not read."
+
+[[audits.pest_stack_guard]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "1.0.0"
+notes = "AI-assisted review (Claude). Whole crate read: remaining_stack() forwards to stacker on 6 native targets (cfg set by build.rs from TARGET) or with the stack-guard feature, else None. No unsafe."
+
+[[audits.plain]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.2.3"
+notes = "AI-assisted review (Claude). Whole crate read (581 lines): unsafe trait Plain for primitives; safe casts check alignment and length first. Nits: zero-sized T would divide by zero; slice_from_mut_bytes_len derives *mut from as_ptr(). Not on goblin's ELF path."
+
+[[audits.portable-atomic-util]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "0.2.7 -> 0.2.8"
+notes = "AI-assisted review (Claude). Drops cfgs for Rust < 1.36; new Arc::map reuses the allocation only when size and alignment match and is_unique (weak locked at 1 and strong == 1), no double drop on panic. build.rs only probes rustc and reads TARGET."
+
+[[audits.proc-macro2]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "1.0.106 -> 1.0.107"
+notes = "AI-assisted review (Claude). MSRV 1.71, CI and doc links, map_or -> is_some_and, an else after panic! removed. Same behaviour."
+
+[[audits.psm]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.1.24"
+notes = "AI-assisted review (Claude). Read build.rs, lib.rs and the x86_64 and aarch64 assembly (stack direction, stack pointer, stack switch with CFI). Other arch .s not read; wasm32 links a shipped precompiled wasm32.o. The .s files lack .note.GNU-stack; a chsr built with it still has a non-executable GNU_STACK (rustc passes -z noexecstack)."
+
+[[audits.ptr_meta]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.3.2"
+notes = "AI-assisted review (Claude). Pointee metadata through a union of the pointer and (data, metadata): relies on the de facto fat-pointer layout that std's unstable ptr::metadata also uses."
+
+[[audits.ptr_meta]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "0.3.1 -> 0.3.2"
+notes = "AI-assisted review (Claude). Cargo.toml only: version and ptr_meta_derive pin."
+
+[[audits.ptr_meta_derive]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.3.2"
+notes = "AI-assisted review (Claude). Derives Pointee with the metadata of the last field and #[pointee] for dyn traits; safe codegen."
+
+[[audits.ptr_meta_derive]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "0.3.1 -> 0.3.2"
+notes = "AI-assisted review (Claude). Cargo.toml only: version, syn 2 -> 3."
+
+[[audits.rancor]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.1.3"
+notes = "AI-assisted review (Claude). ThinBox stores pointer metadata in a header before the value and frees with the same layout; dangling only for zero-sized metadata, which as_ptr reads without touching memory. BoxedError and Error wrappers safe."
+
+[[audits.rancor]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "0.1.1 -> 0.1.3"
+notes = "AI-assisted review (Claude). Display prints the trace only with {:#}, source() returns the inner error, new safe inner() accessors, fail! macro without trailing semicolon. No new unsafe."
+
+[[audits.rend]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.5.4"
+notes = "AI-assisted review (Claude). Endian-aware integer/float/char/NonZero wrappers: CheckBytes no-op only for types valid for every pattern, char and NonZero validated, float<->int transmutes; remaining unsafe is in tests."
+
+[[audits.rend]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "0.5.3 -> 0.5.4"
+notes = "AI-assisted review (Claude). Fixes: compare_exchange returned Ok on failure; fetch_update mixed endianness; CheckBytes for the unaligned endian-aware char now uses read_unaligned instead of an aligned read. SAFETY comments kept."
+
+[[audits.ringbuf]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.5.3"
+notes = "AI-assisted review (Claude). Delta from 0.4.8 and the base read: SharedRb indices Acquire/Release with AcqRel hold flags, Heap storage sized exactly, overflow-free index arithmetic, read_from zero-fills before reading and asserts the reader's count, write_into hands out only occupied bytes."
+
+[[audits.ringbuf]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "0.4.8 -> 0.5.3"
+notes = "AI-assisted review (Claude). Capacity limited to usize::MAX / 2; overflow-free add_mod/sub_mod for indices; ranges() without overflow; PopIter and Frozen endpoints publish immediately (deferred publication could double-drop after mem::forget); panic-safe skip/clear. Edition 2024 unsafe blocks."
+
+[[audits.rkyv]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.8.18"
+notes = "AI-assisted review (Claude). Scope: the path RaR uses (features alloc + bytecheck; enums of i32, bool, String between dosr and its monitor): from_bytes/access, root position, ArchiveValidator (in-bounds, aligned, non-overlapping subtree claims), ArchivedString (inline and out-of-line, UTF-8), to_bytes with the global arena, AlignedVec writer zeroing each archived value. Collections, Rc, hash, btree, with-wrappers and std impls not read. Nit: the arena's next_power_of_two wraps in release for requests above 2^63 bytes."
+
+[[audits.rkyv]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "0.8.16 -> 0.8.18"
+notes = "AI-assisted review (Claude). Validation hardening: B-tree map and hash table entry counts must match len; shared pointers claimed twice with different metadata (e.g. slice length) are rejected; arena size overflow checked; InlineVec::assume_init made unsafe. ErasedPtr moved to a public erased module."
+
+[[audits.rkyv_derive]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.8.18"
+notes = "AI-assisted review (Claude). Archive codegen for enums and structs read: tag written then fields projected through addr_of_mut!/Place; resolver-variant mismatch is unreachable_unchecked, sound for resolvers produced by serialize of the same value. serialize.rs and deserialize.rs generate no unsafe."
+
+[[audits.rkyv_derive]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "0.8.16 -> 0.8.18"
+notes = "AI-assisted review (Claude). syn 3 migration: Type::BareFn -> Type::FnPtr, explicit Type::Path, parenthesized arguments through .ty. No behaviour change."
+
+[[audits.scroll]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.13.0"
+notes = "AI-assisted review (Claude). All 8 unsafe sites read: integer copies after length asserts, slice copy after a length check, [T; N] reader drops exactly the initialised prefix on error. Offsets are bounds-checked and return errors. No I/O without std."
+
+[[audits.scroll_derive]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.13.1"
+notes = "AI-assisted review (Claude). Proc-macro (912 lines): field-by-field gread/gwrite with error propagation; the only generated unsafe reads the discriminant of a repr(prim) fieldless enum, which the macro enforces. No I/O."
+
+[[audits.sha2]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "0.10.9 -> 0.11.1"
+notes = "AI-assisted review (Claude). No build script; constants identical to 0.10.9; runtime dispatch calls SHA-NI/AVX2/aarch64 code only after cpufeatures detection; x86 and aarch64 backends diffed against 0.10.9 (same algorithms, bounds-checked constant loads). Known-answer test vs OpenSSL on 602 inputs, AVX2 and soft paths: 0 mismatch. Opt-in --cfg backend overrides have copy-paste signature errors (fail to compile)."
+
+[[audits.shell-words]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "1.1.1"
+notes = "AI-assisted review (Claude). Whole crate read (forbid(unsafe_code), no build script). split() is a POSIX-like tokenizer; quote() leaves only special-free words bare and single-quotes the rest. Property test on 1,000,000 random word lists (quotes, backslashes, #, ~, newlines, CR, VT, FF, NBSP, NUL): split(join(ws)) == ws, so join is injective, which dosr's argument matching relies on."
+
+[[audits.stacker]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "0.1.25"
+notes = "AI-assisted review (Claude). Linux code read: remaining_stack() = psm stack pointer minus pthread_getattr_np stack base (thread-local), mmap stack guard with guard pages for grow(). build.rs compiles C only on Windows. On the main thread glibc reads /proc/self/maps; failure yields None."
+
+[[audits.test-log]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-run"
+delta = "0.2.20 -> 0.2.21"
+notes = "AI-assisted review (Claude). Version pins and changelog."
+
+[[audits.test-log-core]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-run"
+delta = "0.2.20 -> 0.2.21"
+notes = "AI-assisted review (Claude). The init prologue is inserted as the first statement of the test's block (keeps spans); dev-dependency proc-macro2 span-locations. No build script, no I/O."
+
+[[audits.test-log-macros]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-run"
+delta = "0.2.20 -> 0.2.21"
+notes = "AI-assisted review (Claude). Version pin of test-log-core only."
+
+[[audits.typenum]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+version = "1.20.1"
+notes = "AI-assisted review (Claude). Type-level integers: forbid(unsafe_code), no_std, build = false, no I/O. Generated files checked by script rather than read: all 3438 constant aliases and 1148 Const<N> mappings have the value of their name (0 wrong); 3401 Sum/Prod/Diff/Quot/Mod/comparison/min/max results on sample operands are right; the crate's own 1820 tests pass; every hybrid-array default size has USIZE == N."
+
+[[audits.typenum]]
+who = "LeChatP <lechatp@outlook.fr>"
+criteria = "safe-to-deploy"
+delta = "1.20.0 -> 1.20.1"
+notes = "AI-assisted review (Claude). tarr! recursion through $crate::tarr! (macro hygiene fix), manifest and docs."
+
 [[trusted.aho-corasick]]
 criteria = "safe-to-deploy"
 user-id = 189 # Andrew Gallant (BurntSushi)
 start = "2019-03-28"
-end = "2027-05-24"
-
-[[trusted.anstream]]
-criteria = "safe-to-deploy"
-user-id = 6743 # Ed Page (epage)
-start = "2023-03-16"
 end = "2027-05-24"
 
 [[trusted.anstyle]]
@@ -25,34 +463,10 @@ user-id = 6743 # Ed Page (epage)
 start = "2022-05-18"
 end = "2027-05-24"
 
-[[trusted.anstyle-parse]]
-criteria = "safe-to-deploy"
-user-id = 6743 # Ed Page (epage)
-start = "2023-03-08"
-end = "2027-05-24"
-
-[[trusted.anstyle-query]]
-criteria = "safe-to-deploy"
-user-id = 6743 # Ed Page (epage)
-start = "2023-04-13"
-end = "2027-05-24"
-
-[[trusted.anstyle-wincon]]
-criteria = "safe-to-deploy"
-user-id = 6743 # Ed Page (epage)
-start = "2023-03-08"
-end = "2027-05-24"
-
 [[trusted.anyhow]]
 criteria = "safe-to-deploy"
 user-id = 3618 # David Tolnay (dtolnay)
 start = "2019-10-05"
-end = "2027-05-24"
-
-[[trusted.autocfg]]
-criteria = "safe-to-deploy"
-user-id = 539 # Josh Stone (cuviper)
-start = "2019-05-22"
 end = "2027-05-24"
 
 [[trusted.bon]]
@@ -73,17 +487,18 @@ user-id = 189 # Andrew Gallant (BurntSushi)
 start = "2019-07-07"
 end = "2027-05-24"
 
-[[trusted.bytes]]
-criteria = "safe-to-deploy"
-user-id = 6741
-start = "2021-01-11"
-end = "2027-05-24"
-
 [[trusted.cc]]
 criteria = "safe-to-deploy"
 user-id = 55123 # rust-lang-owner
 start = "2022-10-29"
 end = "2027-05-24"
+
+[[trusted.cc]]
+criteria = "safe-to-deploy"
+trusted-publisher = "github:rust-lang/cc-rs"
+start = "2025-09-01"
+end = "2027-11-07"
+notes = "Same rust-lang/cc-rs project already trusted through rust-lang-owner; its releases are now published by the project's GitHub trusted publisher."
 
 [[trusted.cfg-if]]
 criteria = "safe-to-deploy"
@@ -113,12 +528,6 @@ end = "2027-05-24"
 criteria = "safe-to-deploy"
 user-id = 6743 # Ed Page (epage)
 start = "2022-04-15"
-end = "2027-05-24"
-
-[[trusted.colorchoice]]
-criteria = "safe-to-deploy"
-user-id = 6743 # Ed Page (epage)
-start = "2023-04-13"
 end = "2027-05-24"
 
 [[trusted.env_filter]]
@@ -163,12 +572,6 @@ user-id = 539 # Josh Stone (cuviper)
 start = "2020-01-15"
 end = "2027-05-24"
 
-[[trusted.is_terminal_polyfill]]
-criteria = "safe-to-deploy"
-user-id = 6743 # Ed Page (epage)
-start = "2024-05-02"
-end = "2027-05-24"
-
 [[trusted.itoa]]
 criteria = "safe-to-deploy"
 user-id = 3618 # David Tolnay (dtolnay)
@@ -193,29 +596,18 @@ user-id = 189 # Andrew Gallant (BurntSushi)
 start = "2025-03-06"
 end = "2027-05-24"
 
-[[trusted.jobserver]]
-criteria = "safe-to-deploy"
-user-id = 55123 # rust-lang-owner
-start = "2024-07-23"
-end = "2027-05-24"
-
-[[trusted.js-sys]]
-criteria = "safe-to-deploy"
-user-id = 1
-start = "2019-03-04"
-end = "2027-05-24"
-
 [[trusted.libc]]
 criteria = "safe-to-deploy"
 user-id = 55123 # rust-lang-owner
 start = "2024-08-15"
 end = "2027-05-24"
 
-[[trusted.lock_api]]
+[[trusted.libc]]
 criteria = "safe-to-deploy"
-user-id = 2915
-start = "2019-05-04"
-end = "2027-05-24"
+trusted-publisher = "github:rust-lang/libc"
+start = "2026-10-02"
+end = "2027-11-07"
+notes = "Same rust-lang/libc project already trusted through rust-lang-owner; its releases are now published by the project's GitHub trusted publisher."
 
 [[trusted.memchr]]
 criteria = "safe-to-deploy"
@@ -229,23 +621,12 @@ user-id = 6094 # Alan Somers (asomers)
 start = "2019-05-22"
 end = "2027-05-25"
 
-[[trusted.once_cell_polyfill]]
+[[trusted.nonstick2]]
 criteria = "safe-to-deploy"
-user-id = 6743 # Ed Page (epage)
-start = "2025-05-22"
-end = "2027-05-24"
-
-[[trusted.parking_lot]]
-criteria = "safe-to-deploy"
-user-id = 2915
-start = "2019-05-04"
-end = "2027-05-24"
-
-[[trusted.parking_lot_core]]
-criteria = "safe-to-deploy"
-user-id = 2915
-start = "2019-05-04"
-end = "2027-05-24"
+user-id = 287349
+start = "2026-07-06"
+end = "2027-11-07"
+notes = "Fork of nonstick (PAM bindings) published by the RootAsRole maintainer; trusted as first-party code (maintainer decision of 2026-11-07)."
 
 [[trusted.prettyplease]]
 criteria = "safe-to-deploy"
@@ -269,18 +650,6 @@ end = "2027-05-24"
 criteria = "safe-to-deploy"
 user-id = 189 # Andrew Gallant (BurntSushi)
 start = "2019-03-30"
-end = "2027-05-24"
-
-[[trusted.rustversion]]
-criteria = "safe-to-deploy"
-user-id = 3618 # David Tolnay (dtolnay)
-start = "2019-07-08"
-end = "2027-05-24"
-
-[[trusted.scopeguard]]
-criteria = "safe-to-run"
-user-id = 2915
-start = "2020-02-16"
 end = "2027-05-24"
 
 [[trusted.semver]]
@@ -313,22 +682,10 @@ user-id = 3618 # David Tolnay (dtolnay)
 start = "2019-02-28"
 end = "2027-05-24"
 
-[[trusted.serde_spanned]]
-criteria = "safe-to-deploy"
-user-id = 6743 # Ed Page (epage)
-start = "2023-01-20"
-end = "2027-05-24"
-
 [[trusted.serde_test]]
 criteria = "safe-to-deploy"
 user-id = 3618 # David Tolnay (dtolnay)
 start = "2019-03-01"
-end = "2027-05-24"
-
-[[trusted.slab]]
-criteria = "safe-to-deploy"
-user-id = 6741
-start = "2021-10-13"
 end = "2027-05-24"
 
 [[trusted.syn]]
@@ -349,24 +706,6 @@ user-id = 3618 # David Tolnay (dtolnay)
 start = "2019-10-09"
 end = "2027-05-24"
 
-[[trusted.toml]]
-criteria = "safe-to-deploy"
-user-id = 6743 # Ed Page (epage)
-start = "2022-12-14"
-end = "2027-05-24"
-
-[[trusted.toml_parser]]
-criteria = "safe-to-deploy"
-user-id = 6743 # Ed Page (epage)
-start = "2025-07-08"
-end = "2027-05-24"
-
-[[trusted.toml_writer]]
-criteria = "safe-to-deploy"
-user-id = 6743 # Ed Page (epage)
-start = "2025-07-08"
-end = "2027-05-24"
-
 [[trusted.ucd-trie]]
 criteria = "safe-to-deploy"
 user-id = 189 # Andrew Gallant (BurntSushi)
@@ -379,95 +718,11 @@ user-id = 3618 # David Tolnay (dtolnay)
 start = "2021-10-02"
 end = "2027-05-24"
 
-[[trusted.wasip2]]
-criteria = "safe-to-deploy"
-user-id = 1
-start = "2025-09-09"
-end = "2027-05-24"
-
-[[trusted.wasm-bindgen]]
-criteria = "safe-to-deploy"
-user-id = 1
-start = "2019-03-04"
-end = "2027-05-24"
-
-[[trusted.wasm-bindgen-macro]]
-criteria = "safe-to-deploy"
-user-id = 1
-start = "2019-03-04"
-end = "2027-05-25"
-
-[[trusted.wasm-bindgen-macro-support]]
-criteria = "safe-to-deploy"
-user-id = 1
-start = "2019-03-04"
-end = "2027-05-24"
-
-[[trusted.wasm-bindgen-shared]]
-criteria = "safe-to-deploy"
-user-id = 1
-start = "2019-03-04"
-end = "2027-05-24"
-
-[[trusted.winapi]]
-criteria = "safe-to-deploy"
-user-id = 63
-start = "2019-04-03"
-end = "2027-05-24"
-
-[[trusted.windows-core]]
-criteria = "safe-to-deploy"
-user-id = 64539
-start = "2021-11-15"
-end = "2027-05-24"
-
-[[trusted.windows-implement]]
-criteria = "safe-to-deploy"
-user-id = 64539
-start = "2022-01-27"
-end = "2027-05-24"
-
-[[trusted.windows-interface]]
-criteria = "safe-to-deploy"
-user-id = 64539
-start = "2022-02-18"
-end = "2027-05-24"
-
 [[trusted.windows-link]]
 criteria = "safe-to-deploy"
-user-id = 64539
+user-id = 64539 # Kenny Kerr (kennykerr)
 start = "2024-07-17"
 end = "2027-05-24"
-
-[[trusted.windows-result]]
-criteria = "safe-to-deploy"
-user-id = 64539
-start = "2024-02-02"
-end = "2027-05-24"
-
-[[trusted.windows-strings]]
-criteria = "safe-to-deploy"
-user-id = 64539
-start = "2024-02-02"
-end = "2027-05-24"
-
-[[trusted.windows-sys]]
-criteria = "safe-to-deploy"
-user-id = 64539
-start = "2021-11-15"
-end = "2027-05-24"
-
-[[trusted.winnow]]
-criteria = "safe-to-deploy"
-user-id = 6743 # Ed Page (epage)
-start = "2023-02-22"
-end = "2027-05-24"
-
-[[trusted.wit-bindgen]]
-criteria = "safe-to-deploy"
-user-id = 73222
-start = "2024-02-23"
-end = "2027-05-25"
 
 [[trusted.zmij]]
 criteria = "safe-to-deploy"

@@ -94,6 +94,12 @@ pub const DOCUMENT_MIGRATIONS: &[Migration<Value>] = &[
             Ok(())
         },
     },
+    Migration {
+        from: || Version::new(4, 3, 0),
+        to: || Version::new(4, 3, 1),
+        up: unchanged,
+        down: unchanged,
+    },
 ];
 
 /// The keys that CBOR writes with one character since 4.3.0, with the names that 4.2.0 reads.
@@ -1300,6 +1306,23 @@ mod tests {
         )
         .unwrap();
         document["version"] = original["version"].clone();
+        assert_eq!(document, original);
+    }
+
+    // 4.3.1 only changes how dosr reads an older policy, not the format
+    #[test]
+    fn test_4_3_0_documents_up_and_down() {
+        let original = json!({
+            "version": "4.3.0",
+            "options": {"env": {"default": "delete", "keep": ["HOME"]}, "password": {"tries": 2}, "tty": {"owner": "target"}},
+            "roles": [{"name": "r", "tasks": [{"name": "t", "cred": {"setgid": {"from": "caller"}}, "commands": ["/usr/bin/ls"]}]}]
+        });
+        let mut document = original.clone();
+        let migration = migrate_document(&mut document).unwrap().unwrap();
+        assert_eq!(migration.from, Version::new(4, 3, 0));
+        assert!(migration.changes.is_empty(), "{:?}", migration.changes);
+        assert_eq!(document["version"], PACKAGE_VERSION.to_string());
+        migrate_document_to(&mut document, &Version::new(4, 3, 0)).unwrap();
         assert_eq!(document, original);
     }
 

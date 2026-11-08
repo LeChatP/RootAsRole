@@ -109,9 +109,12 @@ where
     let cli = crate::getopt(args).ok()?;
     let data = crate::finder::de::ConfigFinderDeserializer { cli: &cli, cred }
         .deserialize(&mut serde_json::Deserializer::from_slice(policy))
-        .ok()?;
-    // dosr refuses a policy that it would read with another meaning
-    rootasrole_core::database::migrations::read_as_is(data.version.as_deref()).ok()?;
+        .map_err(|e| e.to_string());
+    // dosr reads an older policy as chsr upgrade writes it, and refuses one that it would read
+    // with another meaning
+    let document = || serde_json::from_slice(policy).map_err(std::io::Error::from);
+    let data =
+        crate::finder::readable(std::path::Path::new("policy"), &cli, cred, data, document).ok()?;
     let settings =
         crate::finder::BestExecSettings::retrieve_settings(&cli, cred, &data, env_vars, env_path)
             .ok()?;

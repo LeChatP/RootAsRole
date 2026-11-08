@@ -577,7 +577,7 @@ This utility addresses differences in pattern syntax and list inheritance:
 * It updates legacy global `delete` definitions containing the old 6-entry default to the current, expanded default set.
 * To ensure existing security profiles do not change under the new inheritance model, it injects explicit `"keep": []` and `"check": []` into legacy `delete`-mode levels that left them undefined.
 
-Tasks still using unmigrated configurations are rejected by `dosr` at runtime until the upgrade has been completed.
+Tasks still using unmigrated configurations are allowed but a warning is logged.
 
 ### Migrating configurations from version 4.1
 

@@ -6,7 +6,7 @@ use std::{
     collections::HashMap,
     ffi::CString,
     fs,
-    io::BufReader,
+    io::{BufReader, Seek},
     path::{Path, PathBuf},
 };
 
@@ -19,9 +19,9 @@ use nix::{
     unistd::{Group, User, getgrouplist},
 };
 use options::BorrowedOptStack;
-use rootasrole_core::database::migrations::read_as_is;
+use rootasrole_core::database::migrations::{UnreadableVersion, migrate_document, read_as_is};
 use rootasrole_core::{
-    Cred,
+    Cred, PACKAGE_VERSION,
     database::{
         actor::{DGroupType, DGroups, NameLookupCache},
         env::{EnvFilter, command_var},
@@ -30,6 +30,7 @@ use rootasrole_core::{
         structs::GroupsFrom,
         workdir::ResolvedWorkdir,
     },
+    file::read_document,
     util::{StorageMethod, cbor_at_end, check_immutable, check_others_permissions},
 };
 use serde::de::DeserializeSeed;
@@ -169,42 +170,39 @@ where
             // a file added to the policy without CAP_LINUX_IMMUTABLE is not trusted
             check_immutable(file_path, &file).map_err(|e| FileError::Refused(e.into()))?;
         }
-        let reader = BufReader::new(file);
-        let settings = match settings_file.data.data.method {
+        let method = settings_file.data.data.method;
+        let reader = BufReader::new(&file);
+        let data = match method {
             // what follows the policy in the file makes it invalid, as for chsr
             StorageMethod::CBOR => {
                 let mut io_reader = cbor4ii::core::utils::IoReader::new(reader);
-                let data = config_finder_deserializer
+                config_finder_deserializer
                     .deserialize(&mut cbor4ii::serde::Deserializer::new(&mut io_reader))
                     .map_err(|e| e.to_string())
                     .and_then(|data| {
                         cbor_at_end(&mut io_reader)
                             .map(|()| data)
                             .map_err(|e| e.to_string())
-                    });
-                BestExecSettings::evaluate(
-                    cli,
-                    cred,
-                    &readable(file_path, data).map_err(FileError::Refused)?,
-                    env_vars.iter().cloned(),
-                    env_path,
-                )
+                    })
             }
             StorageMethod::JSON => {
                 let mut deserializer =
                     serde_json::Deserializer::new(serde_json::de::IoRead::new(reader));
-                let data = config_finder_deserializer
+                config_finder_deserializer
                     .deserialize(&mut deserializer)
-                    .and_then(|data| deserializer.end().map(|()| data));
-                BestExecSettings::evaluate(
-                    cli,
-                    cred,
-                    &readable(file_path, data).map_err(FileError::Refused)?,
-                    env_vars.iter().cloned(),
-                    env_path,
-                )
+                    .and_then(|data| deserializer.end().map(|()| data))
+                    .map_err(|e| e.to_string())
             }
         };
+        // a policy of an older version is read again from the descriptor checked above
+        let document = || {
+            let mut file = &file;
+            file.rewind()?;
+            read_document(method, file)
+        };
+        let data = readable(file_path, cli, cred, data, document).map_err(FileError::Refused)?;
+        let settings =
+            BestExecSettings::evaluate(cli, cred, &data, env_vars.iter().cloned(), env_path);
         settings.map_err(|e| match e {
             SrError::PermissionDenied => FileError::Denied,
             e => {
@@ -298,24 +296,74 @@ enum FileError {
     Refused(SrError),
 }
 
-/// The policy of `path`, when it is valid and dosr reads it as it is: written by a version that
-/// gives it the same meaning (`read_as_is`). Another one is refused rather than read with another
-/// meaning, a file of a policy directory is then skipped. `chsr upgrade` upgrades an older one,
-/// `chsr upgrade --to` of a newer version writes a newer one for this version.
+/// The policy of `path`, read in a stream as `data`, when it is valid and dosr reads it as it is:
+/// written by a version that gives it the same meaning (`read_as_is`).
 ///
-/// The reason is only in the log: dosr shows nothing of the policy to the user who runs it.
-fn readable<'a, E: std::fmt::Display>(
+/// A policy written by an older version is read again as a `document`, and migrated in memory as
+/// `chsr upgrade` would write it, with a warning in the log: its words keep the meaning that they
+/// had for that version, and dosr writes nothing. An upgrade that could not save the policy, an
+/// immutable one without `CAP_LINUX_IMMUTABLE`, leaves dosr working until `chsr upgrade` does.
+/// Another one is refused rather than read with another meaning, a file of a policy directory is
+/// then skipped: without a version, or written by a newer version, which `chsr upgrade --to` of
+/// that version writes for this one.
+///
+/// The reasons are only in the log: dosr shows nothing of the policy to the user who runs it.
+pub fn readable<'a>(
     path: &Path,
-    data: Result<DConfigFinder<'a>, E>,
+    cli: &'a Cli,
+    cred: &'a Cred,
+    data: Result<DConfigFinder<'a>, String>,
+    document: impl FnOnce() -> std::io::Result<serde_json::Value>,
 ) -> SrResult<DConfigFinder<'a>> {
-    let data = data.map_err(|e| {
+    let invalid = |e: &str| {
         error!("{}: the policy is invalid: {e}", path.display());
         SrError::ConfigurationError
-    })?;
-    read_as_is(data.version.as_deref()).map_err(|e| {
+    };
+    let refused = |e: UnreadableVersion| {
         error!("{}: {e}", path.display());
         SrError::ConfigurationError
+    };
+    // the words of an older version may not parse anymore, like the regular expressions of 4.0
+    let parse_error = match data {
+        Ok(data) => match read_as_is(data.version.as_deref()) {
+            Ok(()) => return Ok(data),
+            Err(UnreadableVersion::Older(_)) => None,
+            Err(e) => return Err(refused(e)),
+        },
+        Err(e) => Some(e),
+    };
+    let mut document = match document() {
+        Ok(document) => document,
+        Err(e) => return Err(invalid(&parse_error.unwrap_or_else(|| e.to_string()))),
+    };
+    let version = document
+        .get("version")
+        .or_else(|| document.get("v"))
+        .and_then(serde_json::Value::as_str);
+    let from = match (read_as_is(version), parse_error) {
+        (Err(UnreadableVersion::Older(from)), _) => from,
+        // not written by an older version: what stopped the stream stands
+        (_, Some(e)) => return Err(invalid(&e)),
+        (Err(e), None) => return Err(refused(e)),
+        (Ok(()), None) => {
+            error!("{}: the policy changed while it was read", path.display());
+            return Err(SrError::ConfigurationError);
+        }
+    };
+    migrate_document(&mut document).map_err(|e| {
+        error!(
+            "{}: the policy was written by RootAsRole {from}, which this version cannot read: {e}",
+            path.display()
+        );
+        SrError::ConfigurationError
     })?;
+    let data = ConfigFinderDeserializer { cli, cred }
+        .deserialize(document)
+        .map_err(|e| invalid(&e.to_string()))?;
+    warn!(
+        "{}: the policy was written by RootAsRole {from}, dosr reads it as chsr upgrade writes it for {PACKAGE_VERSION}: upgrade it with chsr upgrade",
+        path.display()
+    );
     Ok(data)
 }
 
@@ -1884,10 +1932,12 @@ mod tests {
         );
     }
 
-    // dosr reads a policy as it is, only from the version since which it means the same: a 4.0.3
-    // policy that chsr upgrade did not migrate (it could not load it, or did not run) gave the
-    // keep list of the global options to a task in delete mode, which 4.0.3 did not, and a newer
-    // policy may mean more than what this version reads in it
+    // dosr reads a policy as it is from the version since which it means the same, an older one
+    // as chsr upgrade writes it (see the next test): read as it is, a 4.0.3 policy that chsr
+    // upgrade did not migrate (it could not write it, or did not run) gave the keep list of the
+    // global options to a task in delete mode, which 4.0.3 did not. A policy without a version,
+    // or of a newer version, which may mean more than what this version reads in it, is refused,
+    // and an older one without a migration to this version
     #[test]
     fn test_find_best_exec_settings_reads_a_policy_only_at_a_known_version() {
         let dir = PolicyDir::new("versions");
@@ -1902,7 +1952,7 @@ mod tests {
             document
         };
         let newer = format!("{}.0.0", rootasrole_core::PACKAGE_VERSION.major + 1);
-        let refused = [None, Some("4.0.3"), Some("3.2.0"), Some("x"), Some(&newer)];
+        let refused = [None, Some("3.2.0"), Some("x"), Some(&newer)];
         // a policy file named by the root file
         let settings = root_settings(StorageMethod::JSON, &data, serde_json::json!([]));
         write_file(&root, &settings, StorageMethod::JSON, 0o600);
@@ -1916,7 +1966,11 @@ mod tests {
                 "{version:?}"
             );
         }
-        for version in ["4.1.0", &rootasrole_core::PACKAGE_VERSION.to_string()] {
+        for version in [
+            "4.0.3",
+            "4.1.0",
+            &rootasrole_core::PACKAGE_VERSION.to_string(),
+        ] {
             write_file(&data, &at(Some(version)), StorageMethod::JSON, 0o600);
             assert_eq!(
                 find(&root, StorageMethod::JSON, "/usr/bin/ls").unwrap(),
@@ -1938,18 +1992,38 @@ mod tests {
             user_role("t", "/usr/bin/ls", &[]),
         );
         let mut old = settings.clone();
-        old["version"] = Value::from("4.0.3");
+        old["version"] = Value::from("3.2.0");
         write_file(&root, &old, StorageMethod::JSON, 0o600);
         assert!(matches!(
             find(&root, StorageMethod::JSON, "/usr/bin/ls"),
             Err(SrError::ConfigurationError)
         ));
+        old["version"] = Value::from("4.0.3");
+        write_file(&root, &old, StorageMethod::JSON, 0o600);
+        assert_eq!(
+            find(&root, StorageMethod::JSON, "/usr/bin/ls").unwrap(),
+            "t"
+        );
         write_file(&root, &settings, StorageMethod::JSON, 0o600);
         assert_eq!(
             find(&root, StorageMethod::JSON, "/usr/bin/ls").unwrap(),
             "t"
         );
-        // in a directory, only the file that is not read as it is is skipped, in CBOR too
+        // the version once: the second one of a JSON file would be the one checked
+        std::fs::write(&data, r#"{"version":"4.0.3","version":"4.1.0","roles":[]}"#).unwrap();
+        let settings = root_settings(StorageMethod::JSON, &data, serde_json::json!([]));
+        write_file(&root, &settings, StorageMethod::JSON, 0o600);
+        assert!(matches!(
+            find(&root, StorageMethod::JSON, "/usr/bin/ls"),
+            Err(SrError::ConfigurationError)
+        ));
+    }
+
+    // in a directory, only the file that dosr does not read is skipped, in CBOR too
+    #[test]
+    fn test_find_best_exec_settings_versions_in_a_policy_directory() {
+        let dir = PolicyDir::new("directory-versions");
+        let root = dir.0.join("rootasrole.json");
         let directory = dir.0.join("rootasrole.d");
         std::fs::create_dir(&directory).unwrap();
         let settings = root_settings(StorageMethod::CBOR, &directory, serde_json::json!([]));
@@ -1962,8 +2036,8 @@ mod tests {
             StorageMethod::CBOR,
             0o600,
         );
-        let mut old = at(Some("4.0.3"));
-        old["roles"][0]["tasks"][0]["commands"] = serde_json::json!(["/usr/bin/cat"]);
+        let mut old = policy(user_role("t", "/usr/bin/cat", &[]));
+        old["version"] = Value::from("3.2.0");
         write_file(&directory.join("old.bin"), &old, StorageMethod::CBOR, 0o600);
         assert_eq!(
             find(&root, StorageMethod::JSON, "/usr/bin/ls").unwrap(),
@@ -1973,14 +2047,84 @@ mod tests {
             find(&root, StorageMethod::JSON, "/usr/bin/cat"),
             Err(SrError::PermissionDenied)
         ));
-        // the version once: the second one of a JSON file would be the one checked
-        std::fs::write(&data, r#"{"version":"4.0.3","version":"4.1.0","roles":[]}"#).unwrap();
-        let settings = root_settings(StorageMethod::JSON, &data, serde_json::json!([]));
-        write_file(&root, &settings, StorageMethod::JSON, 0o600);
-        assert!(matches!(
-            find(&root, StorageMethod::JSON, "/usr/bin/ls"),
-            Err(SrError::ConfigurationError)
-        ));
+        old["version"] = Value::from("4.0.3");
+        write_file(&directory.join("old.bin"), &old, StorageMethod::CBOR, 0o600);
+        assert_eq!(
+            find(&root, StorageMethod::JSON, "/usr/bin/cat").unwrap(),
+            "t"
+        );
+    }
+
+    // an older policy is read as chsr upgrade writes it: its words keep the meaning that they had
+    // for its version, where read as they are, they are refused or mean something else
+    #[test]
+    fn test_find_best_exec_settings_reads_an_older_policy_as_upgraded() {
+        let dir = PolicyDir::new("older");
+        let root = dir.0.join("rootasrole.json");
+        let data = dir.0.join("policy");
+        // a regular expression in the check list, like the policy of the Debian package of 4.0.2,
+        // and a task in delete mode without keep nor check list, which kept nothing up to 4.0.3
+        let document = |version: &str, check: &str| {
+            serde_json::json!({
+                "version": version,
+                "options": {"env": {"default": "delete", "keep": ["KEPT"], "check": [check]}},
+                "roles": [{
+                    "name": "r",
+                    "actors": [{"type": "user", "id": nix::unistd::getuid().as_raw()}],
+                    "tasks": [
+                        {"name": "inherits", "commands": ["/usr/bin/ls"]},
+                        {"name": "strict", "options": {"env": {"default": "delete"}}, "commands": ["/usr/bin/cat"]}
+                    ]
+                }]
+            })
+        };
+        // the variables of the caller that the command gets
+        let kept = |cmd: &str| -> SrResult<Vec<String>> {
+            let cli = Cli::builder().cmd_path(cmd.to_string()).build();
+            let settings = find_best_exec_settings(
+                &cli,
+                &dummy_cred(),
+                &root,
+                &root,
+                StorageMethod::JSON,
+                vec![("KEPT", "1"), ("LC_ALL", "C")],
+                &["/usr/bin"],
+            )
+            .map_err(|failure| failure.error)?;
+            Ok(["KEPT", "LC_ALL"]
+                .into_iter()
+                .filter(|var| settings.env.contains_key(*var))
+                .map(ToString::to_string)
+                .collect())
+        };
+        let current = PACKAGE_VERSION.to_string();
+        for method in [StorageMethod::JSON, StorageMethod::CBOR] {
+            let settings = root_settings(method, &data, serde_json::json!([]));
+            write_file(&root, &settings, StorageMethod::JSON, 0o600);
+            write_file(&data, &document("4.0.2", "LC_.*"), method, 0o600);
+            assert_eq!(
+                kept("/usr/bin/ls").unwrap(),
+                ["KEPT", "LC_ALL"],
+                "{method:?}"
+            );
+            assert!(kept("/usr/bin/cat").unwrap().is_empty(), "{method:?}");
+            // read as they are: the regular expression is invalid, which denies every task that
+            // inherits it, and without it the task in delete mode gets the variables of the
+            // global options
+            write_file(&data, &document(&current, "LC_.*"), method, 0o600);
+            for cmd in ["/usr/bin/ls", "/usr/bin/cat"] {
+                assert!(
+                    matches!(kept(cmd), Err(SrError::PermissionDenied)),
+                    "{method:?} {cmd}"
+                );
+            }
+            write_file(&data, &document(&current, "LC_*"), method, 0o600);
+            assert_eq!(
+                kept("/usr/bin/cat").unwrap(),
+                ["KEPT", "LC_ALL"],
+                "{method:?}"
+            );
+        }
     }
 
     #[test]

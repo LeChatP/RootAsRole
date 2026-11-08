@@ -106,7 +106,7 @@ impl TestRunner {
                             cbor4ii::serde::from_reader(BufReader::new(file)).unwrap_or_default()
                         }
                     };
-                    // written by this version: dosr refuses a policy of another version
+                    // written by this version, which dosr reads as it is
                     settings.version = PACKAGE_VERSION;
                     Ok(settings)
                 })?;
@@ -129,7 +129,7 @@ impl TestRunner {
                             cbor4ii::serde::from_reader(BufReader::new(file)).unwrap_or_default()
                         }
                     };
-                    // written by this version: dosr refuses a policy of another version
+                    // written by this version, which dosr reads as it is
                     settings.version = PACKAGE_VERSION;
                     Ok(settings)
                 })?;
